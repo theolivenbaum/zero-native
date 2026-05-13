@@ -15,6 +15,7 @@
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
 
     <!--
       CefGlue.Common ships CEF binaries based on $(CefGlueTargetPlatform). Consumers of this
@@ -31,6 +32,10 @@
 
   <ItemGroup>
     <PackageReference Include="CefGlue.Common" Version="120.6099.211" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Xilium.CefGlue;
 using Xilium.CefGlue.Common;
+using ZeroNative.Bridge;
 using ZeroNative.Platform;
 using ZeroNative.Primitives;
 
@@ -136,7 +137,7 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
             (int)window.DefaultFrame.Width,
             (int)window.DefaultFrame.Height);
 
-        var client = new CefClientImpl(b => _primaryBrowser = b);
+        var client = new CefClientImpl(b => _primaryBrowser = b, OnBridgeMessage);
         CefBrowserHost.CreateBrowser(windowInfo, client, new CefBrowserSettings(), url);
     }
 
@@ -180,6 +181,11 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
             0);
     }
 
+    private void OnBridgeMessage(string payload)
+    {
+        _handler?.Invoke(new PlatformEvent.BridgeReceived(new BridgeMessage(payload, "zero://inline", 1)));
+    }
+
     public void Dispose()
     {
         if (_initialized)
@@ -196,13 +202,26 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
 internal sealed class CefClientImpl : CefClient
 {
     private readonly CefLifeSpanHandlerImpl _lifeSpan;
+    private readonly Action<string> _onBridgeMessage;
 
-    public CefClientImpl(Action<CefBrowser> onCreated)
+    public CefClientImpl(Action<CefBrowser> onCreated, Action<string> onBridgeMessage)
     {
         _lifeSpan = new CefLifeSpanHandlerImpl(onCreated);
+        _onBridgeMessage = onBridgeMessage;
     }
 
     protected override CefLifeSpanHandler? GetLifeSpanHandler() => _lifeSpan;
+
+    protected override bool OnProcessMessageReceived(CefBrowser browser, CefFrame frame, CefProcessId sourceProcess, CefProcessMessage message)
+    {
+        if (message.Name != CefRenderHandler.ProcessMessageName) return false;
+        var args = message.Arguments;
+        if (args is null) return true;
+        var payload = args.GetString(0);
+        if (string.IsNullOrEmpty(payload)) return true;
+        _onBridgeMessage(payload);
+        return true;
+    }
 }
 
 internal sealed class CefLifeSpanHandlerImpl : CefLifeSpanHandler

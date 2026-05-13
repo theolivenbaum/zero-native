@@ -152,31 +152,33 @@ public sealed class BridgeDispatcher
     public BridgePolicy Policy { get; init; } = new();
     public BridgeRegistry Registry { get; init; } = new();
 
+    /// <summary>
+    /// Outcome of a dispatch call. For synchronous handlers the response is
+    /// available immediately. For asynchronous handlers the response is null
+    /// until the handler invokes the supplied responder.
+    /// </summary>
+    public readonly record struct DispatchResult(string? Response, bool IsAsync);
+
     public string Dispatch(string raw, BridgeSource source)
     {
-        if (raw.Length > BridgeLimits.MaxMessageBytes)
-            return Bridge.WriteErrorResponse("", BridgeErrorCode.PayloadTooLarge, "Bridge request is too large");
+        var (parsed, error, request) = TryPrepare(raw, source);
+        if (!parsed) return error!;
 
-        BridgeRequest request;
-        try
+        var sync = Registry.Find(request!.Command);
+        if (sync is null)
         {
-            request = Bridge.ParseRequest(raw);
-        }
-        catch (BridgeParseException)
-        {
-            return Bridge.WriteErrorResponse("", BridgeErrorCode.InvalidRequest, "Bridge request is malformed");
-        }
-
-        if (!Policy.Allows(request.Command, source.Origin))
-            return Bridge.WriteErrorResponse(request.Id, BridgeErrorCode.PermissionDenied, "Bridge command is not permitted");
-
-        var handler = Registry.Find(request.Command);
-        if (handler is null)
+            var async = Registry.FindAsync(request.Command);
+            if (async is not null)
+            {
+                return Bridge.WriteErrorResponse(request.Id, BridgeErrorCode.HandlerFailed,
+                    "Async handler invoked via synchronous Dispatch; use DispatchAsync or RouteAsync.");
+            }
             return Bridge.WriteErrorResponse(request.Id, BridgeErrorCode.UnknownCommand, "Bridge command is not registered");
+        }
 
         try
         {
-            var result = handler.Invoke(new BridgeInvocation(request, source));
+            var result = sync.Invoke(new BridgeInvocation(request, source));
             return Bridge.WriteSuccessResponse(request.Id, string.IsNullOrEmpty(result) ? "null" : result);
         }
         catch (BridgeHandlerException ex)
@@ -187,6 +189,100 @@ public sealed class BridgeDispatcher
         {
             return Bridge.WriteErrorResponse(request.Id, BridgeErrorCode.HandlerFailed, ex.GetType().Name);
         }
+    }
+
+    /// <summary>
+    /// Dispatches a message, preferring async handlers when registered.
+    /// When an async handler runs, the returned <see cref="DispatchResult"/>
+    /// has a null response — the response will be delivered through the
+    /// supplied <paramref name="asyncResponder"/>.
+    /// </summary>
+    public async ValueTask<DispatchResult> DispatchAsync(
+        string raw,
+        BridgeSource source,
+        Func<BridgeSource, string, ValueTask>? asyncResponder = null)
+    {
+        var (parsed, error, request) = TryPrepare(raw, source);
+        if (!parsed) return new DispatchResult(error, false);
+
+        var async = Registry.FindAsync(request!.Command);
+        if (async is not null)
+        {
+            if (asyncResponder is null)
+            {
+                return new DispatchResult(
+                    Bridge.WriteErrorResponse(request.Id, BridgeErrorCode.HandlerFailed,
+                        "Async handler requires an asyncResponder."),
+                    false);
+            }
+
+            try
+            {
+                var responder = new AsyncBridgeResponder(source, asyncResponder);
+                await async.Invoke(new BridgeInvocation(request, source), responder).ConfigureAwait(false);
+                return new DispatchResult(null, true);
+            }
+            catch (BridgeHandlerException ex)
+            {
+                return new DispatchResult(
+                    Bridge.WriteErrorResponse(request.Id, ex.Code, ex.Message), false);
+            }
+            catch (Exception ex)
+            {
+                return new DispatchResult(
+                    Bridge.WriteErrorResponse(request.Id, BridgeErrorCode.HandlerFailed, ex.GetType().Name),
+                    false);
+            }
+        }
+
+        // Fall back to synchronous dispatch with the same parsed request.
+        var sync = Registry.Find(request.Command);
+        if (sync is null)
+        {
+            return new DispatchResult(
+                Bridge.WriteErrorResponse(request.Id, BridgeErrorCode.UnknownCommand, "Bridge command is not registered"),
+                false);
+        }
+
+        try
+        {
+            var result = sync.Invoke(new BridgeInvocation(request, source));
+            return new DispatchResult(
+                Bridge.WriteSuccessResponse(request.Id, string.IsNullOrEmpty(result) ? "null" : result),
+                false);
+        }
+        catch (BridgeHandlerException ex)
+        {
+            return new DispatchResult(
+                Bridge.WriteErrorResponse(request.Id, ex.Code, ex.Message), false);
+        }
+        catch (Exception ex)
+        {
+            return new DispatchResult(
+                Bridge.WriteErrorResponse(request.Id, BridgeErrorCode.HandlerFailed, ex.GetType().Name),
+                false);
+        }
+    }
+
+    private (bool Parsed, string? Error, BridgeRequest? Request) TryPrepare(string raw, BridgeSource source)
+    {
+        if (raw.Length > BridgeLimits.MaxMessageBytes)
+            return (false, Bridge.WriteErrorResponse("", BridgeErrorCode.PayloadTooLarge, "Bridge request is too large"), null);
+
+        BridgeRequest request;
+        try
+        {
+            request = Bridge.ParseRequest(raw);
+        }
+        catch (BridgeParseException)
+        {
+            return (false, Bridge.WriteErrorResponse("", BridgeErrorCode.InvalidRequest, "Bridge request is malformed"), null);
+        }
+
+        if (!Policy.Allows(request.Command, source.Origin))
+            return (false, Bridge.WriteErrorResponse(request.Id, BridgeErrorCode.PermissionDenied, "Bridge command is not permitted"), null);
+
+        return (true, null, request);
     }
 }
 

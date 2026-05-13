@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
+using ZeroNative.Bridge;
 using ZeroNative.Platform;
 
 namespace ZeroNative.Windows;
@@ -70,12 +71,17 @@ internal sealed class WebView2Platform : IPlatform, IPlatformServices
         var (w, h) = Win32.GetClientSize(hwnd);
         _controller.Bounds = new System.Drawing.Rectangle(0, 0, w, h);
 
+        // Inject the bridge shim before any document loads.
+        await _webView.AddScriptToExecuteOnDocumentCreatedAsync(
+            BridgeJavascript.Build(BridgeJavascript.Channel.ChromeWebView)).ConfigureAwait(false);
+
         _webView.WebMessageReceived += (_, e) =>
         {
             try
             {
                 var msg = e.TryGetWebMessageAsString() ?? e.WebMessageAsJson;
-                _handler?.Invoke(new PlatformEvent.BridgeReceived(new BridgeMessage(msg, "zero://inline", 1)));
+                var origin = e.Source ?? "zero://inline";
+                _handler?.Invoke(new PlatformEvent.BridgeReceived(new BridgeMessage(msg, origin, 1)));
             }
             catch { /* ignore malformed */ }
         };
@@ -132,6 +138,10 @@ internal sealed class WebView2Platform : IPlatform, IPlatformServices
 
     void IPlatformServices.FocusWindow(ulong windowId) { }
     void IPlatformServices.CloseWindow(ulong windowId) => Win32.CloseWindow(_hwnd);
+
+    OpenDialogResult IPlatformServices.ShowOpenDialog(OpenDialogOptions options) => Win32Dialogs.ShowOpen(_hwnd, options);
+    string? IPlatformServices.ShowSaveDialog(SaveDialogOptions options) => Win32Dialogs.ShowSave(_hwnd, options);
+    MessageDialogResult IPlatformServices.ShowMessageDialog(MessageDialogOptions options) => Win32Dialogs.ShowMessage(_hwnd, options);
     void IPlatformServices.EmitWindowEvent(ulong windowId, string eventName, string detailJson)
     {
         if (_webView is null) return;

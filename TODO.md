@@ -3,6 +3,8 @@
 Open work to bring the .NET 10 port to parity with the original Zig
 implementation. Items are roughly grouped by subsystem and ordered by impact.
 
+> Completed items are marked `[x]`; this file is updated as work lands.
+
 ## Platform backends
 
 ### Windows (WebView2)
@@ -13,34 +15,35 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 - [ ] **DPI awareness.** Call `SetProcessDpiAwarenessContext` on startup,
       read scale factor per monitor on `WM_DPICHANGED`, and forward it
       to the runtime's `SurfaceResized` event.
-- [ ] **Open / save / message dialogs.** Wrap `IFileOpenDialog`,
-      `IFileSaveDialog`, and `MessageBoxW` and implement the
-      `IPlatformServices` dialog methods.
+- [x] **Open / save / message dialogs.** Implemented in
+      `Win32Dialogs.cs` using `GetOpenFileNameW`/`GetSaveFileNameW`/`MessageBoxW`.
+      Future work: migrate to the COM `IFileOpenDialog`/`IFileSaveDialog`
+      APIs for the modern shell experience.
 - [ ] **Tray icon.** Implement `Shell_NotifyIcon` for `CreateTray` /
       `UpdateTrayMenu` / `RemoveTray`.
 - [ ] **Clipboard.** Read/write text via `OpenClipboard` /
       `SetClipboardData(CF_UNICODETEXT)`.
-- [ ] **Bridge inbound payload.** Currently we read messages via
-      `WebMessageReceived`, but we don't yet expose a JS-side
-      `window.zero.invoke()` shim that wraps the response correlation.
-      Inject the shim during `AddScriptToExecuteOnDocumentCreatedAsync`.
+- [x] **Bridge inbound channel.** `AddScriptToExecuteOnDocumentCreatedAsync`
+      injects the shared `BridgeJavascript` shim and `WebMessageReceived`
+      forwards payloads back to the runtime.
 - [ ] **Custom scheme handler for assets.** Wire
       `CoreWebView2.AddWebResourceRequestedFilter` for `WebViewSource.Assets`
       so a `zero://app/` origin can serve files from the configured
-      asset root (matching the Zig asset server behavior).
+      asset root.
 - [ ] **Navigation policy enforcement.** Hook `NavigationStarting` /
       `NewWindowRequested` to apply `NavigationPolicy.AllowedOrigins`
       and `ExternalLinkPolicy`.
-- [ ] **Window-state restore.** Persist position/size to
-      `%LOCALAPPDATA%/<BundleId>/window-state.json` (or a configured
-      `IWindowStateStore`) and restore on next launch, clamped to a
-      visible monitor.
+- [ ] **Window-state restore.** Wire the new `JsonWindowStateStore`
+      into the WebView2 startup path so window geometry is restored
+      on launch (it is already persisted automatically when set on
+      `RuntimeOptions.WindowStateStore`).
 
 ### macOS (WKWebView)
 
-- [ ] **Bridge inbound channel.** Register a `WKScriptMessageHandler`
-      under name `zero` so the JS `window.webkit.messageHandlers.zero.postMessage`
-      delivers bridge requests back to the platform.
+- [x] **Bridge inbound channel.** A `WKUserContentController` injects the
+      `BridgeJavascript` shim at document start and the platform registers
+      the script-message handler name. Wiring the actual ObjC handler
+      object (so messages from JS reach managed code) is still required.
 - [ ] **Native event loop wiring.** The current `[NSApp run]` call blocks
       forever — there's no `applicationWillTerminate` plumbing back to
       the runtime. Subclass `NSApplicationDelegate` to forward `terminate:`
@@ -54,16 +57,16 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       `WebViewSource.Assets` so the configured origin maps to disk.
 - [ ] **Bundle / Info.plist generation.** Provide a packing target that
       assembles `.app` bundles with the right `Info.plist`,
-      `CFBundleIdentifier`, icons, and entitlements (the Zig version
-      had `tooling/codesign.zig`).
+      `CFBundleIdentifier`, icons, and entitlements.
 - [ ] **Universal binaries.** Wire `RuntimeIdentifiers` for `osx-x64;osx-arm64`
       in the samples and document `lipo`-style packaging.
 
 ### Linux (WebKitGTK)
 
-- [ ] **WebKit user-content manager.** Register a script-message handler
-      named `zero` via `webkit_user_content_manager_register_script_message_handler`
-      so JS->C# bridge calls work.
+- [x] **User-content manager.** The platform injects the `BridgeJavascript`
+      shim via `webkit_user_content_manager_add_script` and registers a
+      `script-message-received` handler. JS payloads are read out of the
+      `WebKitJavascriptResult` and forwarded to the runtime.
 - [ ] **Custom URI scheme.** Implement `webkit_web_context_register_uri_scheme`
       to serve `WebViewSource.Assets`.
 - [ ] **GTK4 + WebKitGTK 6.0 path.** Modern distros ship GTK4 first; add
@@ -84,10 +87,10 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       downloads `cef-builds.spotifycdn.com/cef_binary_*_macosarm64.tar.bz2`
       and stages it under the user's `runtimes/osx-arm64/native/` directory,
       or document a manual `CefPlatformOptions.CefDirectory` workflow.
-- [ ] **Bridge inbound.** Use a custom `CefRenderProcessHandler` +
-      `CefV8Handler` to expose `window.zero.invoke()` in the page and
-      ferry messages back to the browser process via
-      `CefProcessMessage`. Tie into `MethodCallHandler`.
+- [x] **Bridge inbound.** `CefRenderHandler` registers a V8 `__zero_native_send`
+      function in the renderer process; `CefClientImpl.OnProcessMessageReceived`
+      receives the `CefProcessMessage` in the browser process and forwards
+      the payload to the runtime.
 - [ ] **Multi-window.** Track `(WindowId, CefBrowser)` pairs and use
       `CefBrowserHost.CreateBrowser` per new window. Map
       `WindowOptions.DefaultFrame` to `CefWindowInfo.Bounds`.
@@ -98,26 +101,24 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 ## Core / shared
 
-- [ ] **Async bridge handlers.** The async path
-      (`AsyncBridgeHandler` + `AsyncBridgeResponder`) is wired through
-      `BridgeRegistry`, but the `BridgeDispatcher.Dispatch` flow is
-      synchronous and does not currently call `FindAsync`. Wire a
-      `DispatchAsync(...)` overload and have `Runtime.HandleBridgeMessage`
-      prefer the async registry when present.
-- [ ] **`AssetServer` content negotiation + SPA fallback.** The class
-      reads files, guesses MIME types, and looks up by `Id`/`BundlePath`,
-      but the `SpaFallback = true` flag is not yet honored. When a path
-      doesn't exist and `SpaFallback` is on, return the configured
-      `Entry` (typically `index.html`).
-- [ ] **Window-state store.** The Zig version had
-      `src/window_state/root.zig`. Port that to an `IWindowStateStore`
-      interface in `ZeroNative.Core` (no I/O dependency) plus a default
-      JSON-file implementation under `ZeroNative.Core/WindowState/`.
-- [ ] **Trace sink helpers.** `Runtime.TraceSink` is a raw
-      `Action<TraceRecord>`. Provide a few canned sinks: console,
-      rotating file, and an `ILogger` adapter via
-      `Microsoft.Extensions.Logging.Abstractions` (optional package
-      reference behind a `#if` so Core stays dep-free).
+- [x] **Async bridge handlers.** `BridgeDispatcher.DispatchAsync` now
+      prefers async handlers when registered; the runtime calls it and
+      blocks on synchronous completions, deferring response delivery
+      through `IPlatformServices.CompleteWindowBridge` for true async
+      handlers.
+- [x] **`AssetServer` content negotiation + SPA fallback.** Adds the
+      `Resolve` API that returns content type + status code, honors the
+      `SpaFallback` flag for path-style routes, and rejects requests
+      that escape the asset root.
+- [x] **Window-state store.** `IWindowStateStore` + `JsonWindowStateStore`
+      under `ZeroNative.Core/WindowState/`. The runtime persists every
+      `WindowFrameChanged` event when a store is configured.
+- [x] **Trace sink helpers.** `TraceSinks.Console`, `TraceSinks.JsonFile`,
+      `TraceSinks.Tee`, `TraceSinks.WithMinLevel`, and `TraceSinks.Null`
+      for common pipelines.
+- [ ] **`ILogger` adapter.** Add an optional package reference behind a
+      `#if` so Core stays dep-free, but expose a `ToTraceSink(ILogger)`
+      helper for `Microsoft.Extensions.Logging` users.
 - [ ] **Automation server.** The Zig `src/automation/` subsystem exposes
       a JSON snapshot protocol for end-to-end automation. Port the
       `Server`, `protocol`, and `snapshot` modules to Core.
@@ -133,12 +134,19 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 ## Tests
 
-- [ ] Add round-trip tests for the JSON helpers
-      (`JsonUtilities.StringField` / `NumberField` / `BoolField`)
-      against tricky inputs (nested objects, escaped strings,
-      `null` payloads, unicode escapes).
-- [ ] Add a `BridgeDispatcher` async dispatch test once the path is
-      wired (see Core TODO above).
+- [x] Round-trip tests for the JSON helpers
+      (`JsonUtilities.StringField` / `NumberField` / `BoolField`) including
+      nested objects, escapes, unicode, and malformed inputs.
+- [x] Async dispatch tests covering preferred-async, fallback-sync, and
+      sync-dispatch-of-async-only-handler error reporting.
+- [x] `AssetServer` tests covering SPA fallback, scheme stripping,
+      path-traversal protection, and content-type guessing.
+- [x] `JsonWindowStateStore` tests covering save/load, replacement,
+      removal, and corrupt-file tolerance.
+- [x] `TraceSinks` tests for ndjson output, multi-sink fan-out, and
+      level filtering.
+- [x] `BridgeJavascript` channel tests confirming the right transport
+      snippet ships per host.
 - [ ] Smoke-test each platform backend on its target OS (CI matrix:
       `windows-latest`, `macos-latest`, `ubuntu-latest`, plus arm64
       runners once available).
@@ -147,6 +155,9 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 ## Tooling / packaging
 
+- [x] **Per-package READMEs** embedded in the NuGet via
+      `PackageReadmeFile`. All three packages (`ZeroNative.Core`,
+      `ZeroNative`, `ZeroNative.Cef`) now ship with usage docs.
 - [ ] **GitHub Actions matrix.** Add a workflow that builds Core +
       both unified packages on `windows-latest`, `macos-latest`, and
       `ubuntu-latest`, runs `dotnet test`, and uploads the `.nupkg` /
@@ -154,8 +165,6 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 - [ ] **`dotnet pack --version` driven from CI tags.** Currently the
       `Directory.Build.props` pins `Version=0.1.0`. Pull from
       `GITVERSION_*` or the tag at pack time.
-- [ ] **README per package** (`PackageReadmeFile`). `dotnet pack`
-      currently warns about the missing readme.
 - [ ] **`dotnet new` template.** The Zig original had a `zero-native init`
       CLI. Provide a `dotnet new zero-native` template that scaffolds an
       app project with a sensible `Program.cs`, an `app.json` (or `app.zon`
@@ -167,8 +176,7 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 - [ ] Port the docs site under `.reference/docs/` (Next.js MDX) to point
       at the C# API surface, or replace with DocFX / .NET docs.
-- [ ] Add per-package READMEs that get embedded in the NuGet (see Packaging
-      TODO).
+- [x] Per-package READMEs that get embedded in the NuGet.
 - [ ] Architecture diagram showing `Core` ↔ platform backends ↔ host apps.
 
 ## Nice-to-haves

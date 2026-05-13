@@ -16,6 +16,7 @@ public sealed record RuntimeOptions
     public BridgePolicy BuiltinBridge { get; init; } = new();
     public SecurityPolicy Security { get; init; } = new();
     public bool JsWindowApi { get; init; } = false;
+    public WindowStateStores.IWindowStateStore? WindowStateStore { get; init; }
 }
 
 public sealed record TraceRecord(DateTimeOffset Timestamp, string Level, string Name, string? Message, IReadOnlyDictionary<string, object?> Fields);
@@ -114,6 +115,14 @@ public sealed class Runtime
 
             case PlatformEvent.WindowFrameChanged changed:
                 UpdateWindowState(changed.State);
+                if (Options.WindowStateStore is not null)
+                {
+                    try { Options.WindowStateStore.SaveWindow(changed.State); }
+                    catch (Exception ex)
+                    {
+                        Log("window.state.save_failed", ex.Message, new() { ["label"] = changed.State.Label });
+                    }
+                }
                 Log("window.frame", "window frame updated", new()
                 {
                     ["label"] = changed.State.Label,
@@ -314,7 +323,34 @@ public sealed class Runtime
             };
         }
 
-        var response = dispatcher.Dispatch(message.Bytes, new BridgeSource(message.Origin, message.WindowId));
+        var source = new BridgeSource(message.Origin, message.WindowId);
+
+        // Prefer async dispatch when an async handler is registered for this command.
+        var dispatchTask = dispatcher.DispatchAsync(message.Bytes, source, AsyncRespondToBridge);
+        BridgeDispatcher.DispatchResult outcome;
+        if (dispatchTask.IsCompletedSuccessfully)
+        {
+            outcome = dispatchTask.Result;
+        }
+        else
+        {
+            // Block here; the runtime invariant is single-threaded message dispatch.
+            // Async handlers are encouraged to defer work via their own scheduling.
+            outcome = dispatchTask.AsTask().GetAwaiter().GetResult();
+        }
+
+        if (outcome.IsAsync)
+        {
+            // Response is delivered asynchronously through AsyncRespondToBridge.
+            InvalidateFor(InvalidationReason.Command, null);
+            Log("bridge.dispatch.async", "bridge request handed off to async handler", new()
+            {
+                ["request_bytes"] = message.Bytes.Length,
+            });
+            return;
+        }
+
+        var response = outcome.Response ?? Bridge.Bridge.WriteErrorResponse("", BridgeErrorCode.InternalError, "Empty dispatch response");
         CompleteBridgeResponse(message.WindowId, response);
         InvalidateFor(InvalidationReason.Command, null);
         Log("bridge.dispatch", "bridge request handled", new()
@@ -322,6 +358,12 @@ public sealed class Runtime
             ["request_bytes"] = message.Bytes.Length,
             ["response_bytes"] = response.Length,
         });
+    }
+
+    private ValueTask AsyncRespondToBridge(BridgeSource source, string response)
+    {
+        CompleteBridgeResponse(source.WindowId, response);
+        return ValueTask.CompletedTask;
     }
 
     private bool HandleBuiltinBridgeMessage(BridgeMessage message)
@@ -508,7 +550,7 @@ public sealed class Runtime
         catch (UnsupportedServiceException) { Options.Platform.Services.CompleteBridge(response); }
     }
 
-    private void UpdateWindowState(WindowState state)
+    private void UpdateWindowState(Platform.WindowState state)
     {
         var idx = FindWindowIndexById(state.Id);
         if (idx < 0)

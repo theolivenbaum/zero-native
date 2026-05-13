@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using ZeroNative.Bridge;
 using ZeroNative.Platform;
 
 namespace ZeroNative.Linux;
@@ -20,11 +21,16 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
     private IntPtr _webView;
     private Action<PlatformEvent>? _handler;
     private static readonly Action<IntPtr, IntPtr> _destroyCallback = OnDestroyStatic;
+    // The script-message handler is delivered as a GObject signal callback.
+    // Keep the delegate alive in a field so the GC doesn't reclaim it while GTK holds the function pointer.
+    private readonly Action<IntPtr, IntPtr, IntPtr> _scriptMessageCallback;
+    private static WebKitGtkPlatform? _activeInstance;
 
     public WebKitGtkPlatform(AppInfo appInfo, Surface surface)
     {
         AppInfo = appInfo;
         Surface = surface;
+        _scriptMessageCallback = OnScriptMessage;
     }
 
     public void Run(Action<PlatformEvent> handler)
@@ -65,6 +71,18 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
 
         _webView = WebKit.WebViewNew();
         Gtk.ContainerAdd(_window, _webView);
+
+        // Wire up the bridge: inject the JS shim and register the script-message handler.
+        var ucm = WebKit.GetUserContentManager(_webView);
+        if (ucm != IntPtr.Zero)
+        {
+            WebKit.AddUserScript(ucm, BridgeJavascript.Build(BridgeJavascript.Channel.WebKitMessageHandler));
+            WebKit.RegisterScriptMessageHandler(ucm, BridgeJavascript.HandlerName);
+            var scriptCb = Marshal.GetFunctionPointerForDelegate(_scriptMessageCallback);
+            Gtk.SignalConnectData(ucm, $"script-message-received::{BridgeJavascript.HandlerName}", scriptCb, IntPtr.Zero, IntPtr.Zero, 0);
+            _activeInstance = this;
+        }
+
         Gtk.WidgetShowAll(_window);
 
         // Connect destroy → main_quit. Keep the delegate alive via the static field.
@@ -73,6 +91,20 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
     }
 
     private static void OnDestroyStatic(IntPtr widget, IntPtr data) => Gtk.MainQuit();
+
+    private void OnScriptMessage(IntPtr ucm, IntPtr jsResult, IntPtr userData)
+    {
+        try
+        {
+            var payload = WebKit.ReadJavascriptResultString(jsResult);
+            if (string.IsNullOrEmpty(payload)) return;
+            _handler?.Invoke(new PlatformEvent.BridgeReceived(new BridgeMessage(payload, "zero://inline", 1)));
+        }
+        catch
+        {
+            // Swallow — we never want a malformed JS payload to crash the loop.
+        }
+    }
 
     void IPlatformServices.LoadWindowWebView(ulong windowId, WebViewSource source)
     {

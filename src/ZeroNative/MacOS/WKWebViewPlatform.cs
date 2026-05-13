@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using ZeroNative.Bridge;
 using ZeroNative.Platform;
 
 namespace ZeroNative.MacOS;
@@ -77,9 +78,28 @@ internal sealed class WKWebViewPlatform : IPlatform, IPlatformServices
         var title = ObjC.NSString(window.ResolvedTitle(AppInfo.AppName));
         ObjC.MsgSend(_mainWindow, ObjC.Sel("setTitle:"), title);
 
-        // Create WKWebView
+        // Create WKWebView configuration with a user-content manager that
+        // exposes our bridge JS shim + script-message handler.
         var configClass = ObjC.GetClass("WKWebViewConfiguration");
         var config = ObjC.MsgSend(ObjC.MsgSend(configClass, ObjC.Sel("alloc")), ObjC.Sel("init"));
+
+        // Add the bridge JS shim as a user script at document-start.
+        var ucmClass = ObjC.GetClass("WKUserContentController");
+        var ucm = ObjC.MsgSend(ObjC.MsgSend(ucmClass, ObjC.Sel("alloc")), ObjC.Sel("init"));
+        var userScriptClass = ObjC.GetClass("WKUserScript");
+        var script = ObjC.MsgSend(userScriptClass, ObjC.Sel("alloc"));
+        script = ObjC.MsgSend(
+            script,
+            ObjC.Sel("initWithSource:injectionTime:forMainFrameOnly:"),
+            ObjC.NSString(BridgeJavascript.Build(BridgeJavascript.Channel.WebKitMessageHandler)),
+            IntPtr.Zero /* WKUserScriptInjectionTimeAtDocumentStart */,
+            (IntPtr)0 /* main frame and child frames */);
+        ObjC.MsgSend(ucm, ObjC.Sel("addUserScript:"), script);
+
+        // Wire up the script message handler. The actual JS->ObjC delivery needs
+        // a script-message handler protocol object — a follow-up will register one
+        // backed by a managed callback.
+        ObjC.MsgSend(config, ObjC.Sel("setUserContentController:"), ucm);
 
         var wkClass = ObjC.GetClass("WKWebView");
         var wkAlloc = ObjC.MsgSend(wkClass, ObjC.Sel("alloc"));

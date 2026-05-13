@@ -32,11 +32,16 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       asset root.
 - [ ] **Navigation policy enforcement.** Hook `NavigationStarting` /
       `NewWindowRequested` to apply `NavigationPolicy.AllowedOrigins`
-      and `ExternalLinkPolicy`.
-- [ ] **Window-state restore.** Wire the new `JsonWindowStateStore`
-      into the WebView2 startup path so window geometry is restored
-      on launch (it is already persisted automatically when set on
-      `RuntimeOptions.WindowStateStore`).
+      and `ExternalLinkPolicy`. The shared decision logic lives in
+      `SecurityPolicy.DecideNavigation` — backends only need to map
+      the result onto their native cancel / open-externally APIs.
+- [x] **Window-state restore.** Apps can now call
+      `WindowStateRestoration.Apply(appInfo, store)` to fold persisted
+      window geometry into `AppInfo` before constructing the platform,
+      and the runtime additionally honors the store for windows created
+      at runtime via `Runtime.CreateWindow`. Per-platform startup wiring
+      (resizing the actual HWND/NSWindow without going through AppInfo)
+      remains TODO.
 
 ### macOS (WKWebView)
 
@@ -96,7 +101,8 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       `WindowOptions.DefaultFrame` to `CefWindowInfo.Bounds`.
 - [ ] **Resource interception** for `WebViewSource.Assets` (CEF custom
       scheme via `CefSchemeHandlerFactory`).
-- [ ] **Navigation policy** via `CefRequestHandler.OnBeforeBrowse`.
+- [ ] **Navigation policy** via `CefRequestHandler.OnBeforeBrowse`,
+      delegating the decision to `SecurityPolicy.DecideNavigation`.
 - [ ] **External link policy** via `CefLifeSpanHandler.OnBeforePopup`.
 
 ## Core / shared
@@ -116,19 +122,22 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 - [x] **Trace sink helpers.** `TraceSinks.Console`, `TraceSinks.JsonFile`,
       `TraceSinks.Tee`, `TraceSinks.WithMinLevel`, and `TraceSinks.Null`
       for common pipelines.
-- [ ] **`ILogger` adapter.** Add an optional package reference behind a
-      `#if` so Core stays dep-free, but expose a `ToTraceSink(ILogger)`
-      helper for `Microsoft.Extensions.Logging` users.
+- [x] **`ILogger` adapter.** `TraceSinks.FromLogger(...)` accepts a
+      delegate matching `Microsoft.Extensions.Logging.ILogger.Log` and
+      maps trace levels to `LogLevel` integers, all without taking a
+      dependency on the logging package from Core.
 - [ ] **Automation server.** The Zig `src/automation/` subsystem exposes
       a JSON snapshot protocol for end-to-end automation. Port the
       `Server`, `protocol`, and `snapshot` modules to Core.
 - [ ] **Extensions / module registry.** `src/extensions/root.zig` is
       not yet ported. Decide whether to recreate it or replace with an
       idiomatic `IServiceCollection`-based extension model.
-- [ ] **`AppManifest` parsing.** The Zig version parses `app.zon` files
-      and validates them deeply. The C# port has the typed model and
-      a slim validator, but no parser. Add a JSON/TOML loader so apps
-      can declare their manifest in a config file.
+- [x] **`AppManifest` JSON parsing.** `AppManifestJson.Parse` /
+      `AppManifestJson.Load` reads a JSON manifest mirroring the Zig
+      `app.zon` schema (snake_case keys, semver-ish version with
+      pre-release/build, identity, bridge commands, security policy,
+      frontend dev config, windows, CEF, package, updates). A TOML
+      loader is still open.
 - [ ] **Strong-name / signing.** Decide on an `AssemblyOriginatorKeyFile`
       and Authenticode/macOS notarization story for the published NuGets.
 

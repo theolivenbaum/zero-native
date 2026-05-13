@@ -47,6 +47,49 @@ public sealed record SecurityPolicy(
     public bool AllowsOrigin(string origin)
         => AllowsOrigin(Navigation.AllowedOrigins, origin);
 
+    /// <summary>
+    /// Decides what should happen for a navigation to <paramref name="targetUrl"/>.
+    /// In-policy origins are allowed inline; everything else flows through the configured
+    /// <see cref="NavigationPolicy.ExternalLinks"/> rules.
+    /// </summary>
+    public NavigationDecision DecideNavigation(string targetUrl)
+    {
+        if (string.IsNullOrEmpty(targetUrl)) return NavigationDecision.Block;
+        var origin = OriginOf(targetUrl);
+        if (origin is { Length: > 0 } && AllowsOrigin(origin))
+            return NavigationDecision.AllowInline;
+
+        var ext = Navigation.ExternalLinks;
+        if (ext.AllowedUrls.Count > 0 && !MatchesAllowedUrl(ext.AllowedUrls, targetUrl))
+            return NavigationDecision.Block;
+
+        return ext.Action == ExternalLinkAction.OpenSystemBrowser
+            ? NavigationDecision.OpenExternally
+            : NavigationDecision.Block;
+    }
+
+    /// <summary>
+    /// Extracts the <c>scheme://host[:port]</c> origin from a URL. Returns the input unchanged
+    /// when it already looks like a bare origin, or the empty string when the URL is unusable.
+    /// </summary>
+    public static string OriginOf(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return "";
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return uri.IsDefaultPort
+                ? $"{uri.Scheme}://{uri.Host}"
+                : $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+        }
+        // Treat schemes like "zero://app/foo" as origin "zero://app" when the URI parser balks.
+        var schemeEnd = url.IndexOf("://", StringComparison.Ordinal);
+        if (schemeEnd < 0) return "";
+        var rest = url[(schemeEnd + 3)..];
+        var slashIdx = rest.IndexOf('/');
+        var hostPart = slashIdx >= 0 ? rest[..slashIdx] : rest;
+        return $"{url[..schemeEnd]}://{hostPart}";
+    }
+
     public static bool AllowsOrigin(IEnumerable<string> allowedOrigins, string origin)
     {
         foreach (var allowed in allowedOrigins)
@@ -65,4 +108,30 @@ public sealed record SecurityPolicy(
         var grantSet = new HashSet<string>(grants, StringComparer.Ordinal);
         return required.All(grantSet.Contains);
     }
+
+    private static bool MatchesAllowedUrl(IReadOnlyList<string> allowed, string target)
+    {
+        foreach (var pattern in allowed)
+        {
+            if (pattern == "*") return true;
+            if (pattern == target) return true;
+            // Trailing-wildcard prefix match: "https://docs.example.com/*"
+            if (pattern.EndsWith("/*", StringComparison.Ordinal))
+            {
+                var prefix = pattern[..^1];
+                if (target.StartsWith(prefix, StringComparison.Ordinal)) return true;
+            }
+        }
+        return false;
+    }
+}
+
+public enum NavigationDecision
+{
+    /// <summary>Allow the request to proceed inside the WebView.</summary>
+    AllowInline,
+    /// <summary>Reject the request entirely.</summary>
+    Block,
+    /// <summary>Hand the URL to the OS to open in the system browser.</summary>
+    OpenExternally,
 }

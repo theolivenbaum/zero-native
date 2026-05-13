@@ -4,6 +4,7 @@ using ZeroNative.Bridge;
 using ZeroNative.Platform;
 using ZeroNative.Primitives;
 using ZeroNative.Security;
+using ZeroNative.WindowStateStores;
 
 namespace ZeroNative.Runtime;
 
@@ -199,6 +200,9 @@ public sealed class Runtime
         if (FindWindowIndexById(id) >= 0) throw new DuplicateWindowException("duplicate window id");
         if (FindWindowIndexByLabel(options.Label) >= 0) throw new DuplicateWindowException("duplicate window label");
 
+        var resolved = ApplyPersistedState(options.ToWindowOptions(id, options.Label) with { DefaultFrame = options.DefaultFrame });
+        options = options with { DefaultFrame = resolved.DefaultFrame };
+
         var info = new WindowInfo
         {
             Id = id,
@@ -306,6 +310,30 @@ public sealed class Runtime
             ["kind"] = source.Kind.ToString().ToLowerInvariant(),
             ["bytes"] = source.Body.Length,
         });
+    }
+
+    /// <summary>
+    /// When a <see cref="RuntimeOptions.WindowStateStore"/> is configured and the window
+    /// opts into <see cref="WindowOptions.RestoreState"/>, replaces the default frame with
+    /// the persisted geometry. The frame is sanitized by the configured restore policy.
+    /// </summary>
+    private WindowOptions ApplyPersistedState(WindowOptions window)
+    {
+        if (!window.RestoreState) return window;
+        var store = Options.WindowStateStore;
+        if (store is null) return window;
+
+        Platform.WindowState? saved;
+        try { saved = store.LoadWindow(window.Label); }
+        catch (Exception ex)
+        {
+            Log("window.state.load_failed", ex.Message, new() { ["label"] = window.Label });
+            return window;
+        }
+
+        if (saved is null) return window;
+        var frame = WindowStateRestoration.Sanitize(saved.Frame, window.DefaultFrame, window.RestorePolicy);
+        return window with { DefaultFrame = frame };
     }
 
     private void HandleBridgeMessage(BridgeMessage message)

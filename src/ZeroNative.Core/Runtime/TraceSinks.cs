@@ -59,6 +59,45 @@ public static class TraceSinks
         };
     }
 
+    /// <summary>
+    /// Adapts an <c>ILogger</c>-style log delegate so trace records flow into an existing
+    /// <c>Microsoft.Extensions.Logging</c> pipeline without taking a dependency on it.
+    /// <para>
+    /// The <paramref name="emit"/> signature matches <c>ILogger.Log</c> after currying the
+    /// event id and exception arguments. Typical wiring from a consumer that does reference
+    /// the logging package:
+    /// </para>
+    /// <code>
+    /// var sink = TraceSinks.FromLogger((level, message, fields) =>
+    ///     logger.Log((LogLevel)level, "{Message} {@Fields}", message, fields));
+    /// </code>
+    /// <para>
+    /// The integer level matches <c>Microsoft.Extensions.Logging.LogLevel</c>:
+    /// Trace=0, Debug=1, Information=2, Warning=3, Error=4, Critical=5.
+    /// </para>
+    /// </summary>
+    public static Action<TraceRecord> FromLogger(Action<int, string, IReadOnlyDictionary<string, object?>> emit)
+    {
+        ArgumentNullException.ThrowIfNull(emit);
+        return record =>
+        {
+            var msg = record.Message ?? record.Name;
+            emit(LevelToLoggingLevel(record.Level), msg, record.Fields);
+        };
+    }
+
+    /// <summary>Maps the canonical level name to the integer used by <c>Microsoft.Extensions.Logging.LogLevel</c>.</summary>
+    public static int LevelToLoggingLevel(string level) => level.ToLowerInvariant() switch
+    {
+        "trace" => 0,
+        "debug" => 1,
+        "info" or "information" => 2,
+        "warn" or "warning" => 3,
+        "error" or "err" => 4,
+        "critical" or "crit" or "fatal" => 5,
+        _ => 2,
+    };
+
     private static int LevelRank(string level) => level.ToLowerInvariant() switch
     {
         "trace" => 0,

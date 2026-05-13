@@ -21,20 +21,23 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       APIs for the modern shell experience.
 - [ ] **Tray icon.** Implement `Shell_NotifyIcon` for `CreateTray` /
       `UpdateTrayMenu` / `RemoveTray`.
-- [ ] **Clipboard.** Read/write text via `OpenClipboard` /
-      `SetClipboardData(CF_UNICODETEXT)`.
+- [x] **Clipboard.** `Win32Clipboard` reads/writes Unicode text via
+      `OpenClipboard` / `GetClipboardData(CF_UNICODETEXT)` /
+      `SetClipboardData(CF_UNICODETEXT)`, wired through
+      `IPlatformServices.ReadClipboard` / `WriteClipboard`.
 - [x] **Bridge inbound channel.** `AddScriptToExecuteOnDocumentCreatedAsync`
       injects the shared `BridgeJavascript` shim and `WebMessageReceived`
       forwards payloads back to the runtime.
-- [ ] **Custom scheme handler for assets.** Wire
-      `CoreWebView2.AddWebResourceRequestedFilter` for `WebViewSource.Assets`
-      so a `zero://app/` origin can serve files from the configured
-      asset root.
-- [ ] **Navigation policy enforcement.** Hook `NavigationStarting` /
-      `NewWindowRequested` to apply `NavigationPolicy.AllowedOrigins`
-      and `ExternalLinkPolicy`. The shared decision logic lives in
-      `SecurityPolicy.DecideNavigation` — backends only need to map
-      the result onto their native cancel / open-externally APIs.
+- [x] **Custom scheme handler for assets.** `WebView2Platform` registers
+      `AddWebResourceRequestedFilter(origin/*, All)` for the configured
+      asset origin and answers each `WebResourceRequested` event from a
+      shared `AssetServer` so a `zero://app/` URL maps to disk.
+- [x] **Navigation policy enforcement.** `NavigationStarting` and
+      `NewWindowRequested` consult the configured `SecurityPolicy` via
+      `DecideNavigation` and apply the resulting cancel / open-externally
+      decision (the latter via `Process.Start` with `UseShellExecute`).
+      Data / about / file / asset-origin URIs are exempted so the initial
+      document load is never blocked.
 - [x] **Window-state restore.** Apps can now call
       `WindowStateRestoration.Apply(appInfo, store)` to fold persisted
       window geometry into `AppInfo` before constructing the platform,
@@ -72,8 +75,11 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       shim via `webkit_user_content_manager_add_script` and registers a
       `script-message-received` handler. JS payloads are read out of the
       `WebKitJavascriptResult` and forwarded to the runtime.
-- [ ] **Custom URI scheme.** Implement `webkit_web_context_register_uri_scheme`
-      to serve `WebViewSource.Assets`.
+- [x] **Custom URI scheme.** `WebKitGtkPlatform` registers a
+      `webkit_web_context_register_uri_scheme` callback that resolves the
+      request through the shared `AssetServer` and answers with a
+      `g_memory_input_stream_new_from_bytes` body via
+      `webkit_uri_scheme_request_finish`.
 - [ ] **GTK4 + WebKitGTK 6.0 path.** Modern distros ship GTK4 first; add
       runtime probing for `libwebkitgtk-6.0` alongside the current
       `webkit2gtk-4.1` / `4.0` fallback chain.
@@ -81,7 +87,9 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       `GtkMessageDialog`.
 - [ ] **Tray.** GTK no longer has a first-class tray API; integrate with
       `libayatana-appindicator3-1` or document the gap.
-- [ ] **Clipboard** via `gtk_clipboard_get(GDK_SELECTION_CLIPBOARD)`.
+- [x] **Clipboard** via `gtk_clipboard_get(GDK_SELECTION_CLIPBOARD)` +
+      `gtk_clipboard_set_text` / `gtk_clipboard_wait_for_text`, wired through
+      `IPlatformServices.ReadClipboard` / `WriteClipboard`.
 - [ ] **Window resize/focus events.** Connect `configure-event` and
       `focus-in-event` to forward as `WindowFrameChanged` / `WindowFocused`.
 
@@ -99,11 +107,18 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 - [ ] **Multi-window.** Track `(WindowId, CefBrowser)` pairs and use
       `CefBrowserHost.CreateBrowser` per new window. Map
       `WindowOptions.DefaultFrame` to `CefWindowInfo.Bounds`.
-- [ ] **Resource interception** for `WebViewSource.Assets` (CEF custom
-      scheme via `CefSchemeHandlerFactory`).
-- [ ] **Navigation policy** via `CefRequestHandler.OnBeforeBrowse`,
+- [x] **Resource interception** for `WebViewSource.Assets`. A
+      `ZeroSchemeHandlerFactory` is registered as a `CustomScheme` at
+      `CefRuntimeLoader.Initialize`; each request flows through
+      `ZeroAssetResourceHandler` which streams bytes back from a shared
+      `AssetServer`. The asset scheme defaults to `"zero"` and is
+      configurable via `CefPlatformOptions.AssetScheme`.
+- [x] **Navigation policy** via `CefRequestHandler.OnBeforeBrowse`,
       delegating the decision to `SecurityPolicy.DecideNavigation`.
-- [ ] **External link policy** via `CefLifeSpanHandler.OnBeforePopup`.
+      Data / about / file URIs are exempted so initial loads work.
+- [x] **External link policy** via `CefLifeSpanHandler.OnBeforePopup`.
+      Cancels the popup and, when the policy says so, opens the URL
+      via `Process.Start(UseShellExecute=true)`.
 
 ## Core / shared
 
@@ -180,10 +195,10 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 - [x] **Per-package READMEs** embedded in the NuGet via
       `PackageReadmeFile`. All three packages (`ZeroNative.Core`,
       `ZeroNative`, `ZeroNative.Cef`) now ship with usage docs.
-- [ ] **GitHub Actions matrix.** Add a workflow that builds Core +
-      both unified packages on `windows-latest`, `macos-latest`, and
-      `ubuntu-latest`, runs `dotnet test`, and uploads the `.nupkg` /
-      `.snupkg` artifacts on tag pushes.
+- [x] **GitHub Actions matrix.** `.github/workflows/dotnet.yml` builds
+      and tests on `windows-latest`, `macos-latest`, and `ubuntu-latest`,
+      then packs `ZeroNative.Core`, `ZeroNative`, and `ZeroNative.Cef`
+      and uploads the `.nupkg` artifacts.
 - [ ] **`dotnet pack --version` driven from CI tags.** Currently the
       `Directory.Build.props` pins `Version=0.1.0`. Pull from
       `GITVERSION_*` or the tag at pack time.
@@ -191,8 +206,11 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       CLI. Provide a `dotnet new zero-native` template that scaffolds an
       app project with a sensible `Program.cs`, an `app.json` (or `app.zon`
       compatible reader), and a starter HTML page.
-- [ ] **Source link.** Add `Microsoft.SourceLink.GitHub` to the packable
-      projects so debugging into the package works.
+- [x] **Source link.** `Directory.Build.props` adds
+      `Microsoft.SourceLink.GitHub` to every packable project and turns on
+      `PublishRepositoryUrl` / `EmbedUntrackedSources` /
+      `ContinuousIntegrationBuild` so package consumers can step into the
+      shipped sources.
 
 ## Documentation
 

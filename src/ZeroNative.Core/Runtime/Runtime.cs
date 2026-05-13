@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using ZeroNative.Automation;
 using ZeroNative.Bridge;
 using ZeroNative.Platform;
 using ZeroNative.Primitives;
@@ -269,6 +270,25 @@ public sealed class Runtime
 
     public void RespondToBridge(BridgeSource source, string response)
         => CompleteBridgeResponse(source.WindowId, response);
+
+    /// <summary>
+    /// Snapshots the runtime's current window list and diagnostics for the
+    /// automation server. Pair with <see cref="AutomationServer.Publish"/>
+    /// from a frame hook or the platform's idle callback.
+    /// </summary>
+    public AutomationInput BuildAutomationInput()
+    {
+        var windows = new AutomationWindow[_windows.Count];
+        for (var i = 0; i < _windows.Count; i++)
+        {
+            var w = _windows[i];
+            windows[i] = new AutomationWindow(w.Id, w.Title, w.Frame, w.Focused);
+        }
+        return new AutomationInput(
+            windows,
+            new AutomationDiagnostics(FrameIndex, CommandCount),
+            LoadedSource);
+    }
 
     private void LoadStartupWindows(App app)
     {

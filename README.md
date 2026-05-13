@@ -1,120 +1,80 @@
-# zero-native
+# zero-native (.NET 10 port)
 
-Build native desktop apps with web UI. Tiny binaries. Minimal memory. Instant rebuilds.
+Modern .NET 10 / C# port of the original Zig zero-native framework. Build native desktop apps with a web UI using either the system WebView or the Chromium Embedded Framework.
 
-zero-native is a Zig desktop app shell for modern web frontends. Use the platform WebView when you want the smallest possible app, or bundle Chromium through CEF when rendering consistency matters.
+The original Zig sources live in [`.reference/`](./.reference/) and remain authoritative for behavior. This branch ports the API surface to idiomatic C# 12+, targeting `net10.0`.
 
-## Quick Start
+## Packages
 
-Install the CLI:
+| Package           | Purpose                                                                 | Platforms                                      |
+| ----------------- | ----------------------------------------------------------------------- | ---------------------------------------------- |
+| `ZeroNative.Core` | Cross-platform abstractions: runtime, bridge, security, manifest types. | All `net10.0`                                  |
+| `ZeroNative`      | Unified system-WebView host. Uses WebView2/WKWebView/WebKitGTK.         | Windows x64+arm64, macOS x64+arm64, Linux x64+arm64 |
+| `ZeroNative.Cef`  | CEF (Chromium Embedded Framework) host based on CefGlue.                | Windows x64+arm64, Linux x64+arm64, macOS x64       |
 
-```bash
-npm install -g zero-native
+## Solution layout
+
+```
+src/
+  ZeroNative.Core/          # platform-agnostic library
+  ZeroNative/               # system WebView host
+    Windows/                # WebView2 backend
+    MacOS/                  # WKWebView backend
+    Linux/                  # WebKitGTK backend
+  ZeroNative.Cef/           # CEF host (CefGlue.Common)
+samples/
+  ZeroNative.Sample/        # WebView sample
+  ZeroNative.Sample.Cef/    # CEF sample
+tests/
+  ZeroNative.Core.Tests/    # xUnit tests
+.reference/                 # original Zig sources
 ```
 
-Create and run an app:
+## Quick start
 
-```bash
-zero-native init my_app --frontend next
-cd my_app
-zig build run
+```csharp
+using ZeroNative;
+using ZeroNative.Platform;
+using ZeroNative.Primitives;
+using ZeroNative.Runtime;
+
+var appInfo = new AppInfo
+{
+    AppName = "Hello",
+    BundleId = "dev.example.hello",
+    MainWindow = new WindowOptions
+    {
+        DefaultFrame = new RectF(0, 0, 960, 600),
+    },
+};
+
+var platform = WebViewPlatform.CreateForCurrentOs(appInfo);
+var runtime  = new Runtime(new RuntimeOptions { Platform = platform });
+var app      = new AppBuilder()
+    .Named("hello")
+    .WithSource(WebViewSource.Html("<h1>Hello, zero-native</h1>"))
+    .Build();
+
+runtime.Run(app);
 ```
 
-The first run installs frontend dependencies, builds the generated native shell, and opens a desktop window rendering your web UI.
+For CEF, replace `WebViewPlatform.CreateForCurrentOs(appInfo)` with `CefPlatform.CreateForCurrentOs(appInfo, new CefPlatformOptions())` and add `<CefGlueTargetPlatform>` to your project (e.g. `linux-x64`, `win-x64`, `osx-x64`).
 
-Read the full guide at [zero-native.dev/quick-start](https://zero-native.dev/quick-start).
+## Building
 
-## Why zero-native
+```bash
+dotnet restore
+dotnet build
+dotnet test
+```
 
-### Tiny and fast
+## Packaging
 
-System WebView apps do not bundle a browser runtime, so the native shell stays small and starts quickly. Your app uses WKWebView on macOS and WebKitGTK on Linux.
-
-### Choose your web engine
-
-Pick the engine that fits the product. System WebView gives you a lightweight native footprint. Chromium through CEF gives you predictable rendering and a pinned web platform on supported targets.
-
-### Fast native rebuilds
-
-The native layer is Zig, so app logic, bridge commands, and platform integrations rebuild quickly. Your frontend can still use the web tooling you already know.
-
-### Native power without heavy glue
-
-Zig calls C directly, which keeps platform SDKs, native libraries, codecs, and local system integrations within reach when the WebView layer needs to do real native work.
-
-### Explicit security model
-
-The WebView is treated as untrusted by default. Native commands, permissions, navigation, external links, and window APIs are opt-in and policy controlled.
+```bash
+dotnet pack -c Release src/ZeroNative/ZeroNative.csproj
+dotnet pack -c Release src/ZeroNative.Cef/ZeroNative.Cef.csproj
+```
 
 ## Status
 
-zero-native is pre-release. Desktop support now covers macOS 11+, Linux, and Windows build paths, with Chromium/CEF distributed as platform-specific runtimes.
-
-## Core Concepts
-
-`App` is the small Zig object that describes your application: name, WebView source, lifecycle hooks, and optional native services.
-
-`Runtime` owns the event loop, windows, bridge dispatch, automation hooks, tracing, and platform services.
-
-`WebViewSource` tells the runtime what to load: inline HTML, a URL, or packaged frontend assets served from a local app origin.
-
-`app.zon` is the app manifest. It declares app metadata, icons, windows, frontend assets, web engine selection, security policy, bridge permissions, and packaging inputs.
-
-`window.zero.invoke()` is the JavaScript-to-Zig bridge. Calls are size-limited, origin checked, permission checked, and routed only to registered handlers.
-
-## Configuration
-
-Most project-level behavior lives in `app.zon`:
-
-```zig
-.{
-    .id = "com.example.my-app",
-    .name = "my-app",
-    .display_name = "My App",
-    .version = "0.1.0",
-    .web_engine = "system",
-    .permissions = .{ "window" },
-    .capabilities = .{ "webview", "js_bridge" },
-    .security = .{
-        .navigation = .{
-            .allowed_origins = .{ "zero://app", "http://127.0.0.1:5173" },
-        },
-    },
-    .windows = .{
-        .{ .label = "main", .title = "My App", .width = 960, .height = 640 },
-    },
-}
-```
-
-Use `.web_engine = "system"` for the platform WebView. On supported macOS builds, use `.web_engine = "chromium"` with a `.cef` config when you want to bundle Chromium.
-
-## Documentation
-
-The full documentation is at [zero-native.dev](https://zero-native.dev).
-
-- [Quick Start](https://zero-native.dev/quick-start)
-- [Web Engines](https://zero-native.dev/web-engines)
-- [App Model](https://zero-native.dev/app-model)
-- [Bridge](https://zero-native.dev/bridge)
-- [Security](https://zero-native.dev/security)
-- [Packaging](https://zero-native.dev/packaging)
-
-## Examples
-
-Framework-specific starter examples live in `examples/`:
-
-- `examples/next`
-- `examples/react`
-- `examples/svelte`
-- `examples/vue`
-
-Each example is a complete zero-native app with `app.zon`, a Zig shell, and a minimal frontend project. Run one with `zig build run` from its directory.
-
-Mobile embedding examples are available too:
-
-- `examples/ios`
-- `examples/android`
-
-These show how an iOS or Android host app links the zero-native C ABI from `libzero-native.a`.
-
-For local framework development, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+Initial port. Core abstractions (runtime, bridge, security, manifest) are complete and unit-tested. Platform backends are wired to the appropriate native APIs (WebView2 / WKWebView / WebKitGTK / CefGlue) and ready for further fleshing out (multi-window, dialogs, tray, IPC).

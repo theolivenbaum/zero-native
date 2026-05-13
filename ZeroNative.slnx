@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/ZeroNative.Sample.Cef/ZeroNative.Sample.Cef.csproj" />
+    <Project Path="samples/ZeroNative.Sample/ZeroNative.Sample.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/ZeroNative.Cef/ZeroNative.Cef.csproj" />
+    <Project Path="src/ZeroNative.Core/ZeroNative.Core.csproj" />
+    <Project Path="src/ZeroNative/ZeroNative.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ZeroNative.Core.Tests/ZeroNative.Core.Tests.csproj" />
+  </Folder>
+</Solution>

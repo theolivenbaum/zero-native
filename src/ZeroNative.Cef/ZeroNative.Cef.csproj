@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>ZeroNative.Cef</AssemblyName>
+    <RootNamespace>ZeroNative.Cef</RootNamespace>
+
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>ZeroNative.Cef</PackageId>
+    <Title>ZeroNative.Cef</Title>
+    <Description>Cross-platform desktop apps powered by the Chromium Embedded Framework. Bundles ZeroNative.Core abstractions with a CefGlue-based CEF backend. Distributed with CEF binaries for win-x64, win-arm64, linux-x64, linux-arm64, and osx-x64 via the CefGlue.Common NuGet package.</Description>
+    <PackageTags>desktop;cef;chromium;cefglue;native;cross-platform;windows;macos;linux;x64;arm64</PackageTags>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!--
+      CefGlue.Common ships CEF binaries based on $(CefGlueTargetPlatform). Consumers of this
+      package should set CefGlueTargetPlatform in their app .csproj to one of:
+        win-x64, win-arm64, linux-x64, linux-arm64, osx-x64
+      (osx-arm64 is not currently published on NuGet by the CefGlue project; users targeting
+      macOS arm64 must supply CEF binaries manually).
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZeroNative.Core\ZeroNative.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CefGlue.Common" Version="120.6099.211" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

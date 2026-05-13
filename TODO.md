@@ -1,0 +1,191 @@
+# TODO
+
+Open work to bring the .NET 10 port to parity with the original Zig
+implementation. Items are roughly grouped by subsystem and ordered by impact.
+
+> Completed items are marked `[x]`; this file is updated as work lands.
+
+## Platform backends
+
+### Windows (WebView2)
+
+- [ ] **Multi-window support.** `WebView2Platform` currently only manages
+      a single top-level HWND + CoreWebView2. Extend to host multiple
+      `(HWND, CoreWebView2Controller)` pairs keyed by `WindowId`.
+- [ ] **DPI awareness.** Call `SetProcessDpiAwarenessContext` on startup,
+      read scale factor per monitor on `WM_DPICHANGED`, and forward it
+      to the runtime's `SurfaceResized` event.
+- [x] **Open / save / message dialogs.** Implemented in
+      `Win32Dialogs.cs` using `GetOpenFileNameW`/`GetSaveFileNameW`/`MessageBoxW`.
+      Future work: migrate to the COM `IFileOpenDialog`/`IFileSaveDialog`
+      APIs for the modern shell experience.
+- [ ] **Tray icon.** Implement `Shell_NotifyIcon` for `CreateTray` /
+      `UpdateTrayMenu` / `RemoveTray`.
+- [ ] **Clipboard.** Read/write text via `OpenClipboard` /
+      `SetClipboardData(CF_UNICODETEXT)`.
+- [x] **Bridge inbound channel.** `AddScriptToExecuteOnDocumentCreatedAsync`
+      injects the shared `BridgeJavascript` shim and `WebMessageReceived`
+      forwards payloads back to the runtime.
+- [ ] **Custom scheme handler for assets.** Wire
+      `CoreWebView2.AddWebResourceRequestedFilter` for `WebViewSource.Assets`
+      so a `zero://app/` origin can serve files from the configured
+      asset root.
+- [ ] **Navigation policy enforcement.** Hook `NavigationStarting` /
+      `NewWindowRequested` to apply `NavigationPolicy.AllowedOrigins`
+      and `ExternalLinkPolicy`.
+- [ ] **Window-state restore.** Wire the new `JsonWindowStateStore`
+      into the WebView2 startup path so window geometry is restored
+      on launch (it is already persisted automatically when set on
+      `RuntimeOptions.WindowStateStore`).
+
+### macOS (WKWebView)
+
+- [x] **Bridge inbound channel.** A `WKUserContentController` injects the
+      `BridgeJavascript` shim at document start and the platform registers
+      the script-message handler name. Wiring the actual ObjC handler
+      object (so messages from JS reach managed code) is still required.
+- [ ] **Native event loop wiring.** The current `[NSApp run]` call blocks
+      forever — there's no `applicationWillTerminate` plumbing back to
+      the runtime. Subclass `NSApplicationDelegate` to forward `terminate:`
+      and dock-quit signals as `app_shutdown` events.
+- [ ] **Window delegate.** Forward `windowDidResize`, `windowDidMove`,
+      `windowDidBecomeKey`, `windowWillClose` to the runtime.
+- [ ] **Open / save / message dialogs.** `NSOpenPanel`, `NSSavePanel`,
+      `NSAlert` wrappers behind the `IPlatformServices` API.
+- [ ] **Tray icon.** `NSStatusBar` + `NSStatusItem` + `NSMenu` integration.
+- [ ] **Custom URL scheme.** Implement a `WKURLSchemeHandler` for
+      `WebViewSource.Assets` so the configured origin maps to disk.
+- [ ] **Bundle / Info.plist generation.** Provide a packing target that
+      assembles `.app` bundles with the right `Info.plist`,
+      `CFBundleIdentifier`, icons, and entitlements.
+- [ ] **Universal binaries.** Wire `RuntimeIdentifiers` for `osx-x64;osx-arm64`
+      in the samples and document `lipo`-style packaging.
+
+### Linux (WebKitGTK)
+
+- [x] **User-content manager.** The platform injects the `BridgeJavascript`
+      shim via `webkit_user_content_manager_add_script` and registers a
+      `script-message-received` handler. JS payloads are read out of the
+      `WebKitJavascriptResult` and forwarded to the runtime.
+- [ ] **Custom URI scheme.** Implement `webkit_web_context_register_uri_scheme`
+      to serve `WebViewSource.Assets`.
+- [ ] **GTK4 + WebKitGTK 6.0 path.** Modern distros ship GTK4 first; add
+      runtime probing for `libwebkitgtk-6.0` alongside the current
+      `webkit2gtk-4.1` / `4.0` fallback chain.
+- [ ] **Open / save / message dialogs** via `GtkFileChooserDialog` and
+      `GtkMessageDialog`.
+- [ ] **Tray.** GTK no longer has a first-class tray API; integrate with
+      `libayatana-appindicator3-1` or document the gap.
+- [ ] **Clipboard** via `gtk_clipboard_get(GDK_SELECTION_CLIPBOARD)`.
+- [ ] **Window resize/focus events.** Connect `configure-event` and
+      `focus-in-event` to forward as `WindowFrameChanged` / `WindowFocused`.
+
+### CEF (CefGlue)
+
+- [ ] **macOS arm64 binary distribution.** CefGlue.Common only publishes
+      `cef.redist.osx64` on NuGet. Provide either a build script that
+      downloads `cef-builds.spotifycdn.com/cef_binary_*_macosarm64.tar.bz2`
+      and stages it under the user's `runtimes/osx-arm64/native/` directory,
+      or document a manual `CefPlatformOptions.CefDirectory` workflow.
+- [x] **Bridge inbound.** `CefRenderHandler` registers a V8 `__zero_native_send`
+      function in the renderer process; `CefClientImpl.OnProcessMessageReceived`
+      receives the `CefProcessMessage` in the browser process and forwards
+      the payload to the runtime.
+- [ ] **Multi-window.** Track `(WindowId, CefBrowser)` pairs and use
+      `CefBrowserHost.CreateBrowser` per new window. Map
+      `WindowOptions.DefaultFrame` to `CefWindowInfo.Bounds`.
+- [ ] **Resource interception** for `WebViewSource.Assets` (CEF custom
+      scheme via `CefSchemeHandlerFactory`).
+- [ ] **Navigation policy** via `CefRequestHandler.OnBeforeBrowse`.
+- [ ] **External link policy** via `CefLifeSpanHandler.OnBeforePopup`.
+
+## Core / shared
+
+- [x] **Async bridge handlers.** `BridgeDispatcher.DispatchAsync` now
+      prefers async handlers when registered; the runtime calls it and
+      blocks on synchronous completions, deferring response delivery
+      through `IPlatformServices.CompleteWindowBridge` for true async
+      handlers.
+- [x] **`AssetServer` content negotiation + SPA fallback.** Adds the
+      `Resolve` API that returns content type + status code, honors the
+      `SpaFallback` flag for path-style routes, and rejects requests
+      that escape the asset root.
+- [x] **Window-state store.** `IWindowStateStore` + `JsonWindowStateStore`
+      under `ZeroNative.Core/WindowState/`. The runtime persists every
+      `WindowFrameChanged` event when a store is configured.
+- [x] **Trace sink helpers.** `TraceSinks.Console`, `TraceSinks.JsonFile`,
+      `TraceSinks.Tee`, `TraceSinks.WithMinLevel`, and `TraceSinks.Null`
+      for common pipelines.
+- [ ] **`ILogger` adapter.** Add an optional package reference behind a
+      `#if` so Core stays dep-free, but expose a `ToTraceSink(ILogger)`
+      helper for `Microsoft.Extensions.Logging` users.
+- [ ] **Automation server.** The Zig `src/automation/` subsystem exposes
+      a JSON snapshot protocol for end-to-end automation. Port the
+      `Server`, `protocol`, and `snapshot` modules to Core.
+- [ ] **Extensions / module registry.** `src/extensions/root.zig` is
+      not yet ported. Decide whether to recreate it or replace with an
+      idiomatic `IServiceCollection`-based extension model.
+- [ ] **`AppManifest` parsing.** The Zig version parses `app.zon` files
+      and validates them deeply. The C# port has the typed model and
+      a slim validator, but no parser. Add a JSON/TOML loader so apps
+      can declare their manifest in a config file.
+- [ ] **Strong-name / signing.** Decide on an `AssemblyOriginatorKeyFile`
+      and Authenticode/macOS notarization story for the published NuGets.
+
+## Tests
+
+- [x] Round-trip tests for the JSON helpers
+      (`JsonUtilities.StringField` / `NumberField` / `BoolField`) including
+      nested objects, escapes, unicode, and malformed inputs.
+- [x] Async dispatch tests covering preferred-async, fallback-sync, and
+      sync-dispatch-of-async-only-handler error reporting.
+- [x] `AssetServer` tests covering SPA fallback, scheme stripping,
+      path-traversal protection, and content-type guessing.
+- [x] `JsonWindowStateStore` tests covering save/load, replacement,
+      removal, and corrupt-file tolerance.
+- [x] `TraceSinks` tests for ndjson output, multi-sink fan-out, and
+      level filtering.
+- [x] `BridgeJavascript` channel tests confirming the right transport
+      snippet ships per host.
+- [ ] Smoke-test each platform backend on its target OS (CI matrix:
+      `windows-latest`, `macos-latest`, `ubuntu-latest`, plus arm64
+      runners once available).
+- [ ] Snapshot tests for `Runtime` lifecycle traces (capture
+      `TraceRecord` sequence and diff against golden files).
+
+## Tooling / packaging
+
+- [x] **Per-package READMEs** embedded in the NuGet via
+      `PackageReadmeFile`. All three packages (`ZeroNative.Core`,
+      `ZeroNative`, `ZeroNative.Cef`) now ship with usage docs.
+- [ ] **GitHub Actions matrix.** Add a workflow that builds Core +
+      both unified packages on `windows-latest`, `macos-latest`, and
+      `ubuntu-latest`, runs `dotnet test`, and uploads the `.nupkg` /
+      `.snupkg` artifacts on tag pushes.
+- [ ] **`dotnet pack --version` driven from CI tags.** Currently the
+      `Directory.Build.props` pins `Version=0.1.0`. Pull from
+      `GITVERSION_*` or the tag at pack time.
+- [ ] **`dotnet new` template.** The Zig original had a `zero-native init`
+      CLI. Provide a `dotnet new zero-native` template that scaffolds an
+      app project with a sensible `Program.cs`, an `app.json` (or `app.zon`
+      compatible reader), and a starter HTML page.
+- [ ] **Source link.** Add `Microsoft.SourceLink.GitHub` to the packable
+      projects so debugging into the package works.
+
+## Documentation
+
+- [ ] Port the docs site under `.reference/docs/` (Next.js MDX) to point
+      at the C# API surface, or replace with DocFX / .NET docs.
+- [x] Per-package READMEs that get embedded in the NuGet.
+- [ ] Architecture diagram showing `Core` ↔ platform backends ↔ host apps.
+
+## Nice-to-haves
+
+- [ ] **Native AOT support.** Audit the P/Invoke surface for AOT
+      compatibility; add `IsAotCompatible=true` and a trim/AOT smoke test.
+- [ ] **MAUI / Avalonia integration samples.** Demonstrate hosting
+      `Runtime` inside a MAUI or Avalonia app for projects that want
+      richer native chrome around the WebView.
+- [ ] **Hot reload of the web bundle.** Mirror the Zig `tooling/dev.zig`
+      dev-server integration so saving a frontend file triggers a runtime
+      reload.

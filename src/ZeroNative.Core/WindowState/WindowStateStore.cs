@@ -160,3 +160,54 @@ public sealed class JsonWindowStateStore : IWindowStateStore
         };
     }
 }
+
+/// <summary>
+/// Helpers that fold a window-state store back into an <see cref="AppInfo"/>, so the
+/// platform creates its native windows at the persisted geometry on startup. Use this
+/// before constructing the platform; the runtime applies it automatically for
+/// <c>CreateWindow</c> calls but cannot retroactively move the platform's main window
+/// once it has been created.
+/// </summary>
+public static class WindowStateRestoration
+{
+    /// <summary>
+    /// Returns a copy of <paramref name="info"/> with every <see cref="WindowOptions.DefaultFrame"/>
+    /// replaced by the persisted geometry for that label, when one exists and the window
+    /// has <see cref="WindowOptions.RestoreState"/> set.
+    /// </summary>
+    public static AppInfo Apply(AppInfo info, IWindowStateStore store)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        ArgumentNullException.ThrowIfNull(store);
+
+        var main = RestoreFrame(info.MainWindow, store);
+        var windows = info.Windows.Count == 0
+            ? info.Windows
+            : info.Windows.Select(w => RestoreFrame(w, store)).ToList();
+
+        return info with { MainWindow = main, Windows = windows };
+    }
+
+    private static WindowOptions RestoreFrame(WindowOptions window, IWindowStateStore store)
+    {
+        if (!window.RestoreState || string.IsNullOrEmpty(window.Label)) return window;
+        var saved = store.LoadWindow(window.Label);
+        if (saved is null) return window;
+
+        var sanitized = Sanitize(saved.Frame, window.DefaultFrame, window.RestorePolicy);
+        return window with { DefaultFrame = sanitized };
+    }
+
+    internal static RectF Sanitize(RectF saved, RectF fallback, WindowRestorePolicy policy)
+    {
+        if (saved.Width <= 0 || saved.Height <= 0) return fallback;
+        const float maxOffset = 32_000f;
+        if (Math.Abs(saved.X) > maxOffset || Math.Abs(saved.Y) > maxOffset)
+            return fallback with { Width = saved.Width, Height = saved.Height };
+        return policy switch
+        {
+            WindowRestorePolicy.CenterOnPrimary => new RectF(0, 0, saved.Width, saved.Height),
+            _ => saved,
+        };
+    }
+}

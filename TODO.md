@@ -126,12 +126,19 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       delegate matching `Microsoft.Extensions.Logging.ILogger.Log` and
       maps trace levels to `LogLevel` integers, all without taking a
       dependency on the logging package from Core.
-- [ ] **Automation server.** The Zig `src/automation/` subsystem exposes
-      a JSON snapshot protocol for end-to-end automation. Port the
-      `Server`, `protocol`, and `snapshot` modules to Core.
-- [ ] **Extensions / module registry.** `src/extensions/root.zig` is
-      not yet ported. Decide whether to recreate it or replace with an
-      idiomatic `IServiceCollection`-based extension model.
+- [x] **Automation server.** `ZeroNative.Automation` ports the Zig
+      `src/automation/` subsystem to Core. `AutomationProtocol` parses
+      `reload` / `wait` / `bridge` lines, `AutomationSnapshot` writes the
+      text + a11y + windows artifacts, and `AutomationServer` reads/writes
+      them under a configurable directory. `Runtime.BuildAutomationInput()`
+      snapshots window list + diagnostics for the harness.
+- [x] **Extensions / module registry.** `ZeroNative.Extensions` recreates
+      the Zig `src/extensions/root.zig` model in idiomatic C#:
+      `IModule` (with default no-op hooks) + a `ModuleRegistry` that
+      validates duplicate ids / missing dependencies, starts modules in
+      order, stops in reverse, and routes targeted / broadcast commands.
+      A `DelegateModule` convenience covers the common case without
+      writing a new class.
 - [x] **`AppManifest` JSON parsing.** `AppManifestJson.Parse` /
       `AppManifestJson.Load` reads a JSON manifest mirroring the Zig
       `app.zon` schema (snake_case keys, semver-ish version with
@@ -156,6 +163,12 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       level filtering.
 - [x] `BridgeJavascript` channel tests confirming the right transport
       snippet ships per host.
+- [x] `AutomationProtocol` / `AutomationSnapshot` / `AutomationServer`
+      tests covering command parsing, snapshot formatting, file
+      round-trips, and the `Runtime.BuildAutomationInput()` integration.
+- [x] `ModuleRegistry` tests covering start/stop ordering, targeted
+      dispatch, duplicate-id and missing-dependency rejection, and
+      exception wrapping into `ModuleFailedException`.
 - [ ] Smoke-test each platform backend on its target OS (CI matrix:
       `windows-latest`, `macos-latest`, `ubuntu-latest`, plus arm64
       runners once available).

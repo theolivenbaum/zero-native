@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <AssemblyName>ZeroNative</AssemblyName>
+    <RootNamespace>ZeroNative</RootNamespace>
+
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>ZeroNative</PackageId>
+    <Title>ZeroNative</Title>
+    <Description>Cross-platform desktop apps with system WebView (WebView2 / WKWebView / WebKitGTK). Includes Core abstractions and all platform backends in one unified package.</Description>
+    <PackageTags>desktop;webview;webview2;wkwebview;webkitgtk;native;cross-platform;windows;macos;linux</PackageTags>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZeroNative.Core\ZeroNative.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Windows-only WebView2 dependency for the windows TFM -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZeroNative.Tests" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
+    <DefineConstants>$(DefineConstants);ZERO_NATIVE_HAS_WEBVIEW2</DefineConstants>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+</Project>

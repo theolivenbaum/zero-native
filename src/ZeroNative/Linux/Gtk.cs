@@ -55,6 +55,24 @@ internal static partial class Gtk
     [LibraryImport(GObject, EntryPoint = "g_signal_connect_data", StringMarshalling = StringMarshalling.Utf8)]
     public static partial ulong SignalConnectData(
         IntPtr instance, string signalName, IntPtr handler, IntPtr data, IntPtr destroyData, int flags);
+
+    [LibraryImport(Gtk3, EntryPoint = "gdk_atom_intern", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial IntPtr AtomIntern(string atomName, [MarshalAs(UnmanagedType.U1)] bool onlyIfExists);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_get")]
+    public static partial IntPtr ClipboardGet(IntPtr selection);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_set_text", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void ClipboardSetText(IntPtr clipboard, string text, int len);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_wait_for_text")]
+    public static partial IntPtr ClipboardWaitForText(IntPtr clipboard);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_store")]
+    public static partial void ClipboardStore(IntPtr clipboard);
+
+    [LibraryImport(Glib, EntryPoint = "g_free")]
+    public static partial void GFree(IntPtr ptr);
 }
 
 [SupportedOSPlatform("linux")]
@@ -198,4 +216,82 @@ internal static partial class WebKit
 
     [LibraryImport(WebKit40, EntryPoint = "webkit_web_view_run_javascript", StringMarshalling = StringMarshalling.Utf8)]
     private static partial void WebView_RunJs40(IntPtr webview, string js, IntPtr cancellable, IntPtr callback, IntPtr user_data);
+
+    public static IntPtr GetWebContext(IntPtr webview)
+    {
+        try { return WebView_GetContext41(webview); }
+        catch (DllNotFoundException) { return WebView_GetContext40(webview); }
+    }
+
+    public static void RegisterUriScheme(IntPtr context, string scheme, IntPtr callback, IntPtr userData)
+    {
+        try { Context_RegisterScheme41(context, scheme, callback, userData, IntPtr.Zero); }
+        catch (DllNotFoundException) { Context_RegisterScheme40(context, scheme, callback, userData, IntPtr.Zero); }
+    }
+
+    public static string? GetUriSchemeRequestUri(IntPtr request)
+    {
+        try { return Marshal.PtrToStringUTF8(SchemeRequest_GetUri41(request)); }
+        catch (DllNotFoundException) { return Marshal.PtrToStringUTF8(SchemeRequest_GetUri40(request)); }
+    }
+
+    public static void FinishUriSchemeRequest(IntPtr request, IntPtr stream, long streamLength, string contentType)
+    {
+        try { SchemeRequest_Finish41(request, stream, streamLength, contentType); }
+        catch (DllNotFoundException) { SchemeRequest_Finish40(request, stream, streamLength, contentType); }
+    }
+
+    public static IntPtr CreateMemoryInputStream(byte[] data)
+    {
+        // g_bytes_new copies the data internally, so we can free the unmanaged buffer
+        // immediately. The resulting GBytes owns the copy; we ref-transfer it to the
+        // input stream and unref our reference.
+        IntPtr unmanaged = IntPtr.Zero;
+        try
+        {
+            unmanaged = Marshal.AllocHGlobal(Math.Max(1, data.Length));
+            if (data.Length > 0) Marshal.Copy(data, 0, unmanaged, data.Length);
+            var bytes = BytesNew(unmanaged, (IntPtr)data.Length);
+            var stream = MemoryStream_NewFromBytes(bytes);
+            BytesUnref(bytes);
+            return stream;
+        }
+        finally
+        {
+            if (unmanaged != IntPtr.Zero) Marshal.FreeHGlobal(unmanaged);
+        }
+    }
+
+    [LibraryImport(WebKit41, EntryPoint = "webkit_web_view_get_context")]
+    private static partial IntPtr WebView_GetContext41(IntPtr webview);
+
+    [LibraryImport(WebKit40, EntryPoint = "webkit_web_view_get_context")]
+    private static partial IntPtr WebView_GetContext40(IntPtr webview);
+
+    [LibraryImport(WebKit41, EntryPoint = "webkit_web_context_register_uri_scheme", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial void Context_RegisterScheme41(IntPtr context, string scheme, IntPtr callback, IntPtr userData, IntPtr destroy);
+
+    [LibraryImport(WebKit40, EntryPoint = "webkit_web_context_register_uri_scheme", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial void Context_RegisterScheme40(IntPtr context, string scheme, IntPtr callback, IntPtr userData, IntPtr destroy);
+
+    [LibraryImport(WebKit41, EntryPoint = "webkit_uri_scheme_request_get_uri")]
+    private static partial IntPtr SchemeRequest_GetUri41(IntPtr request);
+
+    [LibraryImport(WebKit40, EntryPoint = "webkit_uri_scheme_request_get_uri")]
+    private static partial IntPtr SchemeRequest_GetUri40(IntPtr request);
+
+    [LibraryImport(WebKit41, EntryPoint = "webkit_uri_scheme_request_finish", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial void SchemeRequest_Finish41(IntPtr request, IntPtr stream, long streamLength, string contentType);
+
+    [LibraryImport(WebKit40, EntryPoint = "webkit_uri_scheme_request_finish", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial void SchemeRequest_Finish40(IntPtr request, IntPtr stream, long streamLength, string contentType);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_memory_input_stream_new_from_bytes")]
+    private static partial IntPtr MemoryStream_NewFromBytes(IntPtr bytes);
+
+    [LibraryImport("libglib-2.0.so.0", EntryPoint = "g_bytes_new")]
+    private static partial IntPtr BytesNew(IntPtr data, IntPtr size);
+
+    [LibraryImport("libglib-2.0.so.0", EntryPoint = "g_bytes_unref")]
+    private static partial void BytesUnref(IntPtr bytes);
 }

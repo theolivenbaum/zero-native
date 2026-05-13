@@ -1,7 +1,10 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using ZeroNative.Assets;
 using ZeroNative.Bridge;
 using ZeroNative.Platform;
+using ZeroNative.Security;
 
 namespace ZeroNative.Linux;
 
@@ -20,10 +23,16 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
     private IntPtr _window;
     private IntPtr _webView;
     private Action<PlatformEvent>? _handler;
+    private SecurityPolicy _policy = new();
+    private AssetServer? _assetServer;
+    private string? _assetScheme;
+    private readonly HashSet<string> _registeredSchemes = new(StringComparer.OrdinalIgnoreCase);
+
     private static readonly Action<IntPtr, IntPtr> _destroyCallback = OnDestroyStatic;
     // The script-message handler is delivered as a GObject signal callback.
     // Keep the delegate alive in a field so the GC doesn't reclaim it while GTK holds the function pointer.
     private readonly Action<IntPtr, IntPtr, IntPtr> _scriptMessageCallback;
+    private readonly Action<IntPtr, IntPtr> _schemeRequestCallback;
     private static WebKitGtkPlatform? _activeInstance;
 
     public WebKitGtkPlatform(AppInfo appInfo, Surface surface)
@@ -31,6 +40,7 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
         AppInfo = appInfo;
         Surface = surface;
         _scriptMessageCallback = OnScriptMessage;
+        _schemeRequestCallback = OnSchemeRequest;
     }
 
     public void Run(Action<PlatformEvent> handler)
@@ -106,6 +116,29 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
         }
     }
 
+    private void OnSchemeRequest(IntPtr request, IntPtr userData)
+    {
+        if (_assetServer is null) return;
+        try
+        {
+            var uri = WebKit.GetUriSchemeRequestUri(request) ?? "";
+            var resolved = _assetServer.Resolve(uri) ?? new AssetResponse(ReadOnlyMemory<byte>.Empty, "text/plain; charset=utf-8", 404);
+            var body = resolved.Body.ToArray();
+            var stream = WebKit.CreateMemoryInputStream(body);
+            WebKit.FinishUriSchemeRequest(request, stream, body.LongLength, ContentTypeOnly(resolved.ContentType));
+        }
+        catch
+        {
+            // Best effort: swallow to avoid crashing the loop.
+        }
+    }
+
+    private static string ContentTypeOnly(string contentType)
+    {
+        var idx = contentType.IndexOf(';');
+        return idx < 0 ? contentType : contentType[..idx].Trim();
+    }
+
     void IPlatformServices.LoadWindowWebView(ulong windowId, WebViewSource source)
     {
         if (_webView == IntPtr.Zero) return;
@@ -120,10 +153,44 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
             case WebViewSourceKind.Assets:
                 var opt = source.AssetOptions;
                 if (opt is null) return;
-                var entry = Path.GetFullPath(Path.Combine(opt.RootPath, opt.Entry));
-                WebKit.LoadUri(_webView, "file://" + entry);
+                ConfigureAssetSource(opt);
+                var origin = (_assetScheme ?? "zero").TrimEnd('/');
+                var host = ExtractHost(opt.Origin);
+                WebKit.LoadUri(_webView, $"{origin}://{host}/{opt.Entry.TrimStart('/')}");
                 break;
         }
+    }
+
+    private void ConfigureAssetSource(WebViewAssetSource opt)
+    {
+        _assetServer = new AssetServer(opt.RootPath, opt.Entry, opt.SpaFallback);
+        var scheme = ExtractScheme(opt.Origin);
+        _assetScheme = scheme;
+
+        if (_registeredSchemes.Add(scheme))
+        {
+            var ctx = WebKit.GetWebContext(_webView);
+            if (ctx != IntPtr.Zero)
+            {
+                var cb = Marshal.GetFunctionPointerForDelegate(_schemeRequestCallback);
+                WebKit.RegisterUriScheme(ctx, scheme, cb, IntPtr.Zero);
+            }
+        }
+    }
+
+    private static string ExtractScheme(string origin)
+    {
+        var idx = origin.IndexOf("://", StringComparison.Ordinal);
+        return idx < 0 ? origin : origin[..idx];
+    }
+
+    private static string ExtractHost(string origin)
+    {
+        var idx = origin.IndexOf("://", StringComparison.Ordinal);
+        if (idx < 0) return "app";
+        var rest = origin[(idx + 3)..];
+        var slash = rest.IndexOf('/');
+        return slash < 0 ? rest : rest[..slash];
     }
 
     void IPlatformServices.CompleteWindowBridge(ulong windowId, string response)
@@ -148,4 +215,26 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
     void IPlatformServices.FocusWindow(ulong windowId) { }
     void IPlatformServices.CloseWindow(ulong windowId) => Gtk.MainQuit();
     void IPlatformServices.EmitWindowEvent(ulong windowId, string eventName, string detailJson) { }
+
+    void IPlatformServices.ConfigureSecurityPolicy(SecurityPolicy policy) => _policy = policy;
+
+    string IPlatformServices.ReadClipboard()
+    {
+        var atom = Gtk.AtomIntern("CLIPBOARD", false);
+        var clipboard = Gtk.ClipboardGet(atom);
+        if (clipboard == IntPtr.Zero) return "";
+        var ptr = Gtk.ClipboardWaitForText(clipboard);
+        if (ptr == IntPtr.Zero) return "";
+        try { return Marshal.PtrToStringUTF8(ptr) ?? ""; }
+        finally { Gtk.GFree(ptr); }
+    }
+
+    void IPlatformServices.WriteClipboard(string text)
+    {
+        var atom = Gtk.AtomIntern("CLIPBOARD", false);
+        var clipboard = Gtk.ClipboardGet(atom);
+        if (clipboard == IntPtr.Zero) return;
+        Gtk.ClipboardSetText(clipboard, text, -1);
+        Gtk.ClipboardStore(clipboard);
+    }
 }

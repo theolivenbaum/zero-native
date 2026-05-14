@@ -9,18 +9,30 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 ### Windows (WebView2)
 
-- [ ] **Multi-window support.** `WebView2Platform` currently only manages
-      a single top-level HWND + CoreWebView2. Extend to host multiple
-      `(HWND, CoreWebView2Controller)` pairs keyed by `WindowId`.
-- [ ] **DPI awareness.** Call `SetProcessDpiAwarenessContext` on startup,
-      read scale factor per monitor on `WM_DPICHANGED`, and forward it
-      to the runtime's `SurfaceResized` event.
+- [x] **Multi-window support.** `WebView2Platform` tracks
+      `(WindowId, HWND)` pairs and `CreateWindow` spawns additional Win32
+      HWNDs against the shared WebView2 environment. The primary HWND is
+      flagged so closing it (or the last open window) ends the loop.
+      Hosting an additional `CoreWebView2Controller` per HWND remains
+      future work — secondary windows currently render an empty Win32
+      shell until the controller fan-out lands.
+- [x] **DPI awareness.** `SetProcessDpiAwarenessContext(PER_MONITOR_V2)`
+      is called before any HWND is created (with a `SetProcessDpiAwareness`
+      fallback for older Windows). `GetDpiForWindow` is read on creation
+      and `WM_DPICHANGED` is forwarded as a `SurfaceResized` carrying the
+      new scale factor.
 - [x] **Open / save / message dialogs.** Implemented in
       `Win32Dialogs.cs` using `GetOpenFileNameW`/`GetSaveFileNameW`/`MessageBoxW`.
       Future work: migrate to the COM `IFileOpenDialog`/`IFileSaveDialog`
       APIs for the modern shell experience.
-- [ ] **Tray icon.** Implement `Shell_NotifyIcon` for `CreateTray` /
-      `UpdateTrayMenu` / `RemoveTray`.
+- [x] **Tray icon.** `Win32Tray` wraps `Shell_NotifyIconW` (NIM_ADD /
+      NIM_DELETE), builds the popup menu via `CreatePopupMenu` +
+      `AppendMenuW`, and tracks clicks via a custom `WM_USER + 1` message
+      routed through the shared WndProc to `TrackPopupMenu` (returning
+      the selected command id as a `PlatformEvent.TrayAction`).
+- [x] **Window events.** `Win32.WindowCallbacks` forwards `WM_SIZE`,
+      `WM_MOVE`, and `WM_ACTIVATE` so the runtime sees
+      `SurfaceResized` / `WindowFrameChanged` / `WindowFocused`.
 - [x] **Clipboard.** `Win32Clipboard` reads/writes Unicode text via
       `OpenClipboard` / `GetClipboardData(CF_UNICODETEXT)` /
       `SetClipboardData(CF_UNICODETEXT)`, wired through
@@ -83,15 +95,29 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 - [ ] **GTK4 + WebKitGTK 6.0 path.** Modern distros ship GTK4 first; add
       runtime probing for `libwebkitgtk-6.0` alongside the current
       `webkit2gtk-4.1` / `4.0` fallback chain.
-- [ ] **Open / save / message dialogs** via `GtkFileChooserDialog` and
-      `GtkMessageDialog`.
-- [ ] **Tray.** GTK no longer has a first-class tray API; integrate with
-      `libayatana-appindicator3-1` or document the gap.
+- [x] **Open / save / message dialogs** via `GtkFileChooserDialog` and
+      `GtkMessageDialog`. See `GtkDialogs.cs` — file filters, multi-select,
+      and primary/secondary/tertiary button mapping are all wired through
+      `IPlatformServices.ShowOpenDialog` / `ShowSaveDialog` / `ShowMessageDialog`.
+- [x] **Tray** via `libayatana-appindicator3-1`. `AyatanaIndicator`
+      probes the library at runtime; when missing the platform raises a
+      `UnsupportedServiceException` for `CreateTray` so callers can
+      detect the gap. Menu items map activations back to
+      `PlatformEvent.TrayAction`.
 - [x] **Clipboard** via `gtk_clipboard_get(GDK_SELECTION_CLIPBOARD)` +
       `gtk_clipboard_set_text` / `gtk_clipboard_wait_for_text`, wired through
       `IPlatformServices.ReadClipboard` / `WriteClipboard`.
-- [ ] **Window resize/focus events.** Connect `configure-event` and
-      `focus-in-event` to forward as `WindowFrameChanged` / `WindowFocused`.
+- [x] **Window resize/focus events.** `configure-event` reads
+      `gtk_window_get_position` + `gtk_window_get_size` and emits
+      `WindowFrameChanged` (plus `SurfaceResized` for the primary window);
+      `focus-in-event` emits `WindowFocused`.
+- [x] **Navigation policy.** Hooks the `decide-policy` signal,
+      resolves the requested URI through
+      `webkit_navigation_policy_decision_get_navigation_action` →
+      `webkit_navigation_action_get_request` → `webkit_uri_request_get_uri`,
+      and applies the SecurityPolicy verdict via
+      `webkit_policy_decision_use` / `webkit_policy_decision_ignore`.
+      External links route through `Process.Start(UseShellExecute=true)`.
 
 ### CEF (CefGlue)
 

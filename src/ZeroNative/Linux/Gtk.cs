@@ -73,6 +73,124 @@ internal static partial class Gtk
 
     [LibraryImport(Glib, EntryPoint = "g_free")]
     public static partial void GFree(IntPtr ptr);
+
+    // Window event APIs used to forward configure/focus signals to the runtime.
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_get_position")]
+    public static partial void WindowGetPosition(IntPtr window, out int rootX, out int rootY);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_get_size")]
+    public static partial void WindowGetSize(IntPtr window, out int width, out int height);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_widget_get_scale_factor")]
+    public static partial int WidgetGetScaleFactor(IntPtr widget);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_present")]
+    public static partial void WindowPresent(IntPtr window);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_move")]
+    public static partial void WindowMove(IntPtr window, int x, int y);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_resize")]
+    public static partial void WindowResize(IntPtr window, int width, int height);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_set_resizable")]
+    public static partial void WindowSetResizable(IntPtr window, [MarshalAs(UnmanagedType.U1)] bool resizable);
+
+    // Dialog APIs.
+    public const int ResponseAccept = -3;
+    public const int ResponseCancel = -6;
+    public const int ResponseOk = -5;
+    public const int ResponseClose = -7;
+    public const int ResponseYes = -8;
+    public const int ResponseNo = -9;
+
+    public const int FileChooserActionOpen = 0;
+    public const int FileChooserActionSave = 1;
+    public const int FileChooserActionSelectFolder = 2;
+
+    public const int MessageInfo = 0;
+    public const int MessageWarning = 1;
+    public const int MessageQuestion = 2;
+    public const int MessageError = 3;
+
+    public const int ButtonsOk = 1;
+    public const int ButtonsClose = 2;
+    public const int ButtonsCancel = 3;
+    public const int ButtonsYesNo = 4;
+    public const int ButtonsOkCancel = 5;
+    public const int ButtonsNone = 0;
+
+    public const int DialogModal = 1;
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_chooser_dialog_new", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial IntPtr FileChooserDialogNew(string? title, IntPtr parent, int action, IntPtr nullSentinel);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_dialog_add_button", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial IntPtr DialogAddButton(IntPtr dialog, string buttonText, int responseId);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_dialog_run")]
+    public static partial int DialogRun(IntPtr dialog);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_widget_destroy")]
+    public static partial void DialogDestroy(IntPtr widget);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_chooser_get_filename")]
+    public static partial IntPtr FileChooserGetFilename(IntPtr chooser);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_chooser_get_filenames")]
+    public static partial IntPtr FileChooserGetFilenames(IntPtr chooser);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_chooser_set_select_multiple")]
+    public static partial void FileChooserSetSelectMultiple(IntPtr chooser, [MarshalAs(UnmanagedType.U1)] bool select);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_chooser_set_current_folder", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int FileChooserSetCurrentFolder(IntPtr chooser, string folder);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_chooser_set_current_name", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void FileChooserSetCurrentName(IntPtr chooser, string name);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_chooser_set_do_overwrite_confirmation")]
+    public static partial void FileChooserSetOverwriteConfirmation(IntPtr chooser, [MarshalAs(UnmanagedType.U1)] bool confirm);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_chooser_add_filter")]
+    public static partial void FileChooserAddFilter(IntPtr chooser, IntPtr filter);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_filter_new")]
+    public static partial IntPtr FileFilterNew();
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_filter_set_name", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void FileFilterSetName(IntPtr filter, string name);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_file_filter_add_pattern", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void FileFilterAddPattern(IntPtr filter, string pattern);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_message_dialog_new", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial IntPtr MessageDialogNew(IntPtr parent, int flags, int type, int buttons, string? message);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_message_dialog_format_secondary_text", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void MessageDialogFormatSecondary(IntPtr dialog, string? message);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_set_title", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void DialogSetTitle(IntPtr dialog, string title);
+
+    // GList helpers (used to walk gtk_file_chooser_get_filenames results).
+    [LibraryImport(Glib, EntryPoint = "g_list_length")]
+    public static partial uint ListLength(IntPtr list);
+
+    [LibraryImport(Glib, EntryPoint = "g_list_nth_data")]
+    public static partial IntPtr ListNthData(IntPtr list, uint n);
+
+    [LibraryImport(Glib, EntryPoint = "g_list_free")]
+    public static partial void ListFree(IntPtr list);
+
+    [LibraryImport(Glib, EntryPoint = "g_slist_length")]
+    public static partial uint SListLength(IntPtr list);
+
+    [LibraryImport(Glib, EntryPoint = "g_slist_nth_data")]
+    public static partial IntPtr SListNthData(IntPtr list, uint n);
+
+    [LibraryImport(Glib, EntryPoint = "g_slist_free")]
+    public static partial void SListFree(IntPtr list);
 }
 
 [SupportedOSPlatform("linux")]
@@ -294,4 +412,73 @@ internal static partial class WebKit
 
     [LibraryImport("libglib-2.0.so.0", EntryPoint = "g_bytes_unref")]
     private static partial void BytesUnref(IntPtr bytes);
+
+    // Navigation policy: subscribe to the WebKit "decide-policy" signal and inspect
+    // the WebKitNavigationPolicyDecision / WebKitNavigationAction / WebKitURIRequest.
+    public const int PolicyDecisionTypeNavigationAction = 0;
+    public const int PolicyDecisionTypeNewWindowAction = 1;
+    public const int PolicyDecisionTypeResponse = 2;
+
+    public static IntPtr GetNavigationRequestUri(IntPtr decision)
+    {
+        // decision -> WebKitNavigationAction* -> WebKitURIRequest* -> uri
+        try
+        {
+            var action = NavigationPolicyDecisionGetAction41(decision);
+            if (action == IntPtr.Zero) return IntPtr.Zero;
+            var request = NavigationActionGetRequest41(action);
+            if (request == IntPtr.Zero) return IntPtr.Zero;
+            return UriRequestGetUri41(request);
+        }
+        catch (DllNotFoundException)
+        {
+            var action = NavigationPolicyDecisionGetAction40(decision);
+            if (action == IntPtr.Zero) return IntPtr.Zero;
+            var request = NavigationActionGetRequest40(action);
+            if (request == IntPtr.Zero) return IntPtr.Zero;
+            return UriRequestGetUri40(request);
+        }
+    }
+
+    public static void IgnoreDecision(IntPtr decision)
+    {
+        try { PolicyDecisionIgnore41(decision); }
+        catch (DllNotFoundException) { PolicyDecisionIgnore40(decision); }
+    }
+
+    public static void UseDecision(IntPtr decision)
+    {
+        try { PolicyDecisionUse41(decision); }
+        catch (DllNotFoundException) { PolicyDecisionUse40(decision); }
+    }
+
+    [LibraryImport(WebKit41, EntryPoint = "webkit_navigation_policy_decision_get_navigation_action")]
+    private static partial IntPtr NavigationPolicyDecisionGetAction41(IntPtr decision);
+
+    [LibraryImport(WebKit40, EntryPoint = "webkit_navigation_policy_decision_get_navigation_action")]
+    private static partial IntPtr NavigationPolicyDecisionGetAction40(IntPtr decision);
+
+    [LibraryImport(WebKit41, EntryPoint = "webkit_navigation_action_get_request")]
+    private static partial IntPtr NavigationActionGetRequest41(IntPtr action);
+
+    [LibraryImport(WebKit40, EntryPoint = "webkit_navigation_action_get_request")]
+    private static partial IntPtr NavigationActionGetRequest40(IntPtr action);
+
+    [LibraryImport(WebKit41, EntryPoint = "webkit_uri_request_get_uri")]
+    private static partial IntPtr UriRequestGetUri41(IntPtr request);
+
+    [LibraryImport(WebKit40, EntryPoint = "webkit_uri_request_get_uri")]
+    private static partial IntPtr UriRequestGetUri40(IntPtr request);
+
+    [LibraryImport(WebKit41, EntryPoint = "webkit_policy_decision_ignore")]
+    private static partial void PolicyDecisionIgnore41(IntPtr decision);
+
+    [LibraryImport(WebKit40, EntryPoint = "webkit_policy_decision_ignore")]
+    private static partial void PolicyDecisionIgnore40(IntPtr decision);
+
+    [LibraryImport(WebKit41, EntryPoint = "webkit_policy_decision_use")]
+    private static partial void PolicyDecisionUse41(IntPtr decision);
+
+    [LibraryImport(WebKit40, EntryPoint = "webkit_policy_decision_use")]
+    private static partial void PolicyDecisionUse40(IntPtr decision);
 }

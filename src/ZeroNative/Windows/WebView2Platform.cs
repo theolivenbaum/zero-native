@@ -24,6 +24,7 @@ internal sealed class WebView2Platform : IPlatform, IPlatformServices
     public IPlatformServices Services => this;
 
     private IntPtr _hwnd;
+    private ulong _primaryWindowId = 1;
     private CoreWebView2Environment? _environment;
     private CoreWebView2Controller? _controller;
     private CoreWebView2? _webView;
@@ -31,7 +32,13 @@ internal sealed class WebView2Platform : IPlatform, IPlatformServices
     private SecurityPolicy _policy = new();
     private AssetServer? _assetServer;
     private string? _assetOrigin;
+    private float _scaleFactor = 1f;
     private readonly HashSet<string> _assetFilters = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<ulong, IntPtr> _windowsById = new();
+    private readonly Dictionary<IntPtr, ulong> _windowIdsByHwnd = new();
+    private readonly Dictionary<ulong, string> _windowLabels = new();
+    private readonly Dictionary<ulong, string> _windowTitles = new();
+    private Win32Tray? _tray;
 
     public WebView2Platform(AppInfo appInfo, Surface surface)
     {
@@ -44,26 +51,42 @@ internal sealed class WebView2Platform : IPlatform, IPlatformServices
         _handler = handler;
 
         var window = AppInfo.ResolvedStartupWindow(0);
+        _primaryWindowId = window.Id;
         _hwnd = Win32.CreateTopLevelWindow(
             window.ResolvedTitle(AppInfo.AppName),
             (int)window.DefaultFrame.Width,
-            (int)window.DefaultFrame.Height);
+            (int)window.DefaultFrame.Height,
+            (int)window.DefaultFrame.X,
+            (int)window.DefaultFrame.Y,
+            primary: true);
+        _windowsById[window.Id] = _hwnd;
+        _windowIdsByHwnd[_hwnd] = window.Id;
+        _windowLabels[window.Id] = window.Label;
+        _windowTitles[window.Id] = window.ResolvedTitle(AppInfo.AppName);
+        _scaleFactor = Win32.GetWindowScaleFactor(_hwnd);
+
+        Win32.RegisterCallbacks(_hwnd, new Win32.WindowCallbacks(
+            OnResize: OnResize,
+            OnMove: OnMove,
+            OnActivate: OnActivate,
+            OnDpiChanged: OnDpiChanged,
+            OnTrayMessage: lp => _tray?.HandleTrayMessage(lp)));
 
         handler(new PlatformEvent.AppStart());
-        handler(new PlatformEvent.SurfaceResized(Surface));
+        handler(new PlatformEvent.SurfaceResized(Surface with { ScaleFactor = _scaleFactor }));
         handler(new PlatformEvent.WindowFrameChanged(new WindowState
         {
             Id = window.Id,
             Label = window.Label,
             Title = window.ResolvedTitle(AppInfo.AppName),
             Frame = window.DefaultFrame,
-            ScaleFactor = Surface.ScaleFactor,
+            ScaleFactor = _scaleFactor,
             Open = true,
             Focused = true,
         }));
 
         InitializeWebView2Async(_hwnd).GetAwaiter().GetResult();
-        Win32.RunMessageLoop(_hwnd, OnResize);
+        Win32.RunMessageLoop();
 
         handler(new PlatformEvent.AppShutdown());
     }
@@ -106,6 +129,42 @@ internal sealed class WebView2Platform : IPlatform, IPlatformServices
         _handler?.Invoke(new PlatformEvent.SurfaceResized(Surface with
         {
             Size = new ZeroNative.Primitives.SizeF(width, height),
+            ScaleFactor = _scaleFactor,
+        }));
+        EmitWindowFrame(_hwnd);
+    }
+
+    private void OnMove(int x, int y) => EmitWindowFrame(_hwnd);
+
+    private void OnActivate(bool activated)
+    {
+        if (!_windowIdsByHwnd.TryGetValue(_hwnd, out var id)) return;
+        if (activated) _handler?.Invoke(new PlatformEvent.WindowFocused(id));
+    }
+
+    private void OnDpiChanged(uint dpi)
+    {
+        _scaleFactor = dpi == 0 ? 1f : dpi / 96f;
+        _handler?.Invoke(new PlatformEvent.SurfaceResized(Surface with
+        {
+            ScaleFactor = _scaleFactor,
+        }));
+        EmitWindowFrame(_hwnd);
+    }
+
+    private void EmitWindowFrame(IntPtr hwnd)
+    {
+        if (!_windowIdsByHwnd.TryGetValue(hwnd, out var id)) return;
+        var (x, y, w, h) = Win32.GetWindowFrame(hwnd);
+        _handler?.Invoke(new PlatformEvent.WindowFrameChanged(new WindowState
+        {
+            Id = id,
+            Label = _windowLabels.TryGetValue(id, out var label) ? label : "main",
+            Title = _windowTitles.TryGetValue(id, out var title) ? title : AppInfo.AppName,
+            Frame = new ZeroNative.Primitives.RectF(x, y, w, h),
+            ScaleFactor = _scaleFactor,
+            Open = true,
+            Focused = id == _primaryWindowId,
         }));
     }
 
@@ -138,23 +197,82 @@ internal sealed class WebView2Platform : IPlatform, IPlatformServices
     }
 
     WindowInfo IPlatformServices.CreateWindow(WindowOptions options)
-        => new()
+    {
+        if (_windowsById.ContainsKey(options.Id))
+            throw new DuplicateWindowException("duplicate window id");
+
+        var title = options.ResolvedTitle(AppInfo.AppName);
+        var hwnd = Win32.CreateTopLevelWindow(
+            title,
+            (int)options.DefaultFrame.Width,
+            (int)options.DefaultFrame.Height,
+            (int)options.DefaultFrame.X,
+            (int)options.DefaultFrame.Y,
+            primary: false);
+        _windowsById[options.Id] = hwnd;
+        _windowIdsByHwnd[hwnd] = options.Id;
+        _windowLabels[options.Id] = options.Label;
+        _windowTitles[options.Id] = title;
+        var scale = Win32.GetWindowScaleFactor(hwnd);
+
+        Win32.RegisterCallbacks(hwnd, new Win32.WindowCallbacks(
+            OnClose: () => _handler?.Invoke(new PlatformEvent.WindowFrameChanged(new WindowState
+            {
+                Id = options.Id,
+                Label = options.Label,
+                Title = title,
+                Frame = options.DefaultFrame,
+                ScaleFactor = scale,
+                Open = false,
+                Focused = false,
+            }))));
+
+        return new WindowInfo
         {
             Id = options.Id,
             Label = options.Label,
-            Title = options.ResolvedTitle(AppInfo.AppName),
+            Title = title,
             Frame = options.DefaultFrame,
-            ScaleFactor = Surface.ScaleFactor,
+            ScaleFactor = scale,
             Open = true,
             Focused = false,
         };
+    }
 
-    void IPlatformServices.FocusWindow(ulong windowId) { }
-    void IPlatformServices.CloseWindow(ulong windowId) => Win32.CloseWindow(_hwnd);
+    void IPlatformServices.FocusWindow(ulong windowId)
+    {
+        if (_windowsById.TryGetValue(windowId, out var hwnd))
+            Win32.FocusWindow(hwnd);
+    }
+
+    void IPlatformServices.CloseWindow(ulong windowId)
+    {
+        if (_windowsById.TryGetValue(windowId, out var hwnd))
+        {
+            Win32.CloseWindow(hwnd);
+            _windowsById.Remove(windowId);
+            _windowIdsByHwnd.Remove(hwnd);
+        }
+    }
 
     OpenDialogResult IPlatformServices.ShowOpenDialog(OpenDialogOptions options) => Win32Dialogs.ShowOpen(_hwnd, options);
     string? IPlatformServices.ShowSaveDialog(SaveDialogOptions options) => Win32Dialogs.ShowSave(_hwnd, options);
     MessageDialogResult IPlatformServices.ShowMessageDialog(MessageDialogOptions options) => Win32Dialogs.ShowMessage(_hwnd, options);
+
+    void IPlatformServices.CreateTray(TrayOptions options)
+    {
+        _tray ??= new Win32Tray(_hwnd, id => _handler?.Invoke(new PlatformEvent.TrayAction(id)));
+        _tray.Install(options);
+    }
+
+    void IPlatformServices.UpdateTrayMenu(IReadOnlyList<TrayMenuItem> items)
+        => _tray?.UpdateMenu(items);
+
+    void IPlatformServices.RemoveTray()
+    {
+        _tray?.Remove();
+        _tray = null;
+    }
 
     string IPlatformServices.ReadClipboard() => Win32Clipboard.ReadText();
     void IPlatformServices.WriteClipboard(string text) => Win32Clipboard.WriteText(text);

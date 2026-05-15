@@ -46,6 +46,8 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
     private delegate void SchemeRequestCallback(IntPtr request, IntPtr userData);
     private delegate int SignalEventCallback(IntPtr widget, IntPtr eventPtr, IntPtr userData);
     private delegate int DecidePolicyCallback(IntPtr webview, IntPtr decision, int decisionType, IntPtr userData);
+    // GObject "notify::<prop>" callback: void(GObject* object, GParamSpec* pspec, gpointer user_data).
+    private delegate void NotifyCallback(IntPtr instance, IntPtr pspec, IntPtr userData);
 
     private static readonly DestroyCallback _destroyCallback = OnDestroyStatic;
     // Keep the delegates alive in fields so the GC doesn't reclaim them while GTK holds the function pointer.
@@ -53,6 +55,8 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
     private readonly SchemeRequestCallback _schemeRequestCallback;
     private readonly SignalEventCallback _configureCallback;
     private readonly SignalEventCallback _focusInCallback;
+    private readonly NotifyCallback _notifyGeometryCallback;
+    private readonly NotifyCallback _notifyIsActiveCallback;
     private readonly DecidePolicyCallback _decidePolicyCallback;
     private static WebKitGtkPlatform? _activeInstance;
 
@@ -64,6 +68,8 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
         _schemeRequestCallback = OnSchemeRequest;
         _configureCallback = OnConfigureEvent;
         _focusInCallback = OnFocusInEvent;
+        _notifyGeometryCallback = OnNotifyGeometry;
+        _notifyIsActiveCallback = OnNotifyIsActive;
         _decidePolicyCallback = OnDecidePolicy;
     }
 
@@ -146,17 +152,43 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
 
         if (!Gtk.IsGtk4)
         {
-            // GTK3 supports configure-event / focus-in-event directly on the window.
-            // GTK4 removed both — geometry has to come from notify::default-width /
-            // notify::default-height / notify::is-active and a separate gesture
-            // controller for focus. That wiring stays TODO; the GTK4 path still
-            // brings the window up and serves the asset stream, just without live
-            // resize/focus traces.
+            // GTK3 emits configure-event / focus-in-event directly on the window.
             var configureCb = Marshal.GetFunctionPointerForDelegate(_configureCallback);
             Gtk.SignalConnectData(_window, "configure-event", configureCb, IntPtr.Zero, IntPtr.Zero, 0);
             var focusInCb = Marshal.GetFunctionPointerForDelegate(_focusInCallback);
             Gtk.SignalConnectData(_window, "focus-in-event", focusInCb, IntPtr.Zero, IntPtr.Zero, 0);
         }
+        else
+        {
+            // GTK4 removed configure-event / focus-in-event; geometry comes from
+            // notify::default-width/height (fires on user resize) and focus from
+            // notify::is-active. Programmatic position isn't exposed, so OnNotifyGeometry
+            // reports (0,0) for X/Y — the WM owns placement on GTK4.
+            var notifyGeomCb = Marshal.GetFunctionPointerForDelegate(_notifyGeometryCallback);
+            Gtk.SignalConnectData(_window, "notify::default-width", notifyGeomCb, IntPtr.Zero, IntPtr.Zero, 0);
+            Gtk.SignalConnectData(_window, "notify::default-height", notifyGeomCb, IntPtr.Zero, IntPtr.Zero, 0);
+            var notifyActiveCb = Marshal.GetFunctionPointerForDelegate(_notifyIsActiveCallback);
+            Gtk.SignalConnectData(_window, "notify::is-active", notifyActiveCb, IntPtr.Zero, IntPtr.Zero, 0);
+        }
+    }
+
+    /// <summary>
+    /// GTK4 size-change signal. Fires when the user resizes the toplevel or the WM
+    /// rewrites the default size. Emits the same WindowFrameChanged / SurfaceResized
+    /// events as the GTK3 configure-event handler. Position is reported as (0,0)
+    /// because GTK4 no longer exposes absolute screen coordinates.
+    /// </summary>
+    private void OnNotifyGeometry(IntPtr instance, IntPtr pspec, IntPtr userData)
+    {
+        OnConfigureEvent(instance, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    private void OnNotifyIsActive(IntPtr instance, IntPtr pspec, IntPtr userData)
+    {
+        // notify::is-active fires on both gain and loss; check the new value and
+        // only emit on gain to match the GTK3 focus-in-event semantics.
+        if (!Gtk.Gtk4WindowIsActive(instance)) return;
+        OnFocusInEvent(instance, IntPtr.Zero, IntPtr.Zero);
     }
 
     private int OnConfigureEvent(IntPtr widget, IntPtr eventPtr, IntPtr userData)
@@ -475,11 +507,7 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
 
     string IPlatformServices.ReadClipboard()
     {
-        // The GTK3 GtkClipboard API was removed in GTK4 in favour of
-        // gdk_display_get_clipboard / GdkContentProvider, which we haven't
-        // bound yet. Surface a clear "unsupported" signal on GTK4 instead of
-        // P/Invoking into an unloaded libgtk-3.
-        if (Gtk.IsGtk4) throw new UnsupportedServiceException("Clipboard access on GTK4 requires the GdkClipboard binding (not yet ported)");
+        if (Gtk.IsGtk4) return Gtk4ClipboardRead();
         var atom = Gtk.AtomIntern("CLIPBOARD", false);
         var clipboard = Gtk.ClipboardGet(atom);
         if (clipboard == IntPtr.Zero) return "";
@@ -491,12 +519,85 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
 
     void IPlatformServices.WriteClipboard(string text)
     {
-        if (Gtk.IsGtk4) throw new UnsupportedServiceException("Clipboard access on GTK4 requires the GdkClipboard binding (not yet ported)");
+        if (Gtk.IsGtk4)
+        {
+            var clip4 = Gtk4DefaultClipboard();
+            if (clip4 == IntPtr.Zero) throw new UnsupportedServiceException("Clipboard requires a default GdkDisplay");
+            Gtk.Gdk4ClipboardSetText(clip4, text);
+            return;
+        }
         var atom = Gtk.AtomIntern("CLIPBOARD", false);
         var clipboard = Gtk.ClipboardGet(atom);
         if (clipboard == IntPtr.Zero) return;
         Gtk.ClipboardSetText(clipboard, text, -1);
         Gtk.ClipboardStore(clipboard);
+    }
+
+    /// <summary>
+    /// Resolves the default GTK4 clipboard via the (folded-in) GDK display getter.
+    /// </summary>
+    private static IntPtr Gtk4DefaultClipboard()
+    {
+        var display = Gtk.Gdk4DisplayGetDefault();
+        return display == IntPtr.Zero ? IntPtr.Zero : Gtk.Gdk4DisplayGetClipboard(display);
+    }
+
+    // GTK4 GdkClipboard.read_text is async-only. We drive a nested main-context
+    // iteration loop until the GAsyncReadyCallback fires, then call _finish to pull
+    // the string out. The callback writes the result into a GCHandle-pinned record.
+    private sealed class Gtk4ClipReadState
+    {
+        public bool Done;
+        public string? Text;
+    }
+
+    private delegate void GAsyncReadyCallback(IntPtr source, IntPtr result, IntPtr userData);
+    private static readonly GAsyncReadyCallback _gtk4ClipReadDone = OnGtk4ClipReadDone;
+
+    private static string Gtk4ClipboardRead()
+    {
+        var clipboard = Gtk4DefaultClipboard();
+        if (clipboard == IntPtr.Zero) return "";
+
+        var state = new Gtk4ClipReadState();
+        var handle = GCHandle.Alloc(state);
+        try
+        {
+            var cb = Marshal.GetFunctionPointerForDelegate(_gtk4ClipReadDone);
+            Gtk.Gdk4ClipboardReadTextAsync(clipboard, IntPtr.Zero, cb, GCHandle.ToIntPtr(handle));
+            // Pump the default main context until the callback flips Done.
+            while (!state.Done) Gtk.MainContextIteration(IntPtr.Zero, true);
+            return state.Text ?? "";
+        }
+        finally
+        {
+            handle.Free();
+        }
+    }
+
+    private static void OnGtk4ClipReadDone(IntPtr source, IntPtr result, IntPtr userData)
+    {
+        Gtk4ClipReadState? state = null;
+        try
+        {
+            var handle = GCHandle.FromIntPtr(userData);
+            state = handle.Target as Gtk4ClipReadState;
+            if (state is null) return;
+            var ptr = Gtk.Gdk4ClipboardReadTextFinish(source, result, IntPtr.Zero);
+            if (ptr != IntPtr.Zero)
+            {
+                state.Text = Marshal.PtrToStringUTF8(ptr);
+                Gtk.GFree(ptr);
+            }
+        }
+        catch
+        {
+            // Best-effort — the caller's loop only checks the Done flag.
+        }
+        finally
+        {
+            if (state is not null) state.Done = true;
+        }
     }
 
     IReadOnlyList<string> IPlatformServices.ReadClipboardFiles()

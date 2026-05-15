@@ -157,6 +157,15 @@ internal static partial class Gtk
     [return: MarshalAs(UnmanagedType.I4)]
     public static partial int EventsPending();
 
+    /// <summary>
+    /// Iterates the default GMainContext once, blocking until at least one source
+    /// dispatches. Used to drive async GLib APIs (e.g. GdkClipboard's text read,
+    /// GtkFileDialog) into a synchronous return on the calling thread.
+    /// </summary>
+    [LibraryImport(Glib, EntryPoint = "g_main_context_iteration")]
+    [return: MarshalAs(UnmanagedType.I4)]
+    public static partial int MainContextIteration(IntPtr context, [MarshalAs(UnmanagedType.U1)] bool mayBlock);
+
     // ---- Windows ----
 
     public static IntPtr WindowNew(int type) => s_abi switch
@@ -343,16 +352,25 @@ internal static partial class Gtk
     [LibraryImport(Gtk4, EntryPoint = "gtk_widget_get_scale_factor")]
     private static partial int Gtk4WidgetGetScaleFactor(IntPtr widget);
 
+    /// <summary>
+    /// GTK4 read for <c>GtkWindow:is-active</c>. Used by the notify::is-active
+    /// callback to suppress focus-loss events.
+    /// </summary>
+    [LibraryImport(Gtk4, EntryPoint = "gtk_window_is_active")]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool Gtk4WindowIsActive(IntPtr window);
+
     // ---- Signals (shared GObject path) ----
 
     [LibraryImport(GObject, EntryPoint = "g_signal_connect_data", StringMarshalling = StringMarshalling.Utf8)]
     public static partial ulong SignalConnectData(
         IntPtr instance, string signalName, IntPtr handler, IntPtr data, IntPtr destroyData, int flags);
 
-    // ---- Clipboard (GTK3 API surface; the GTK4 clipboard uses GdkClipboard + GdkContentProvider) ----
+    // ---- Clipboard ----
     //
-    // These remain GTK3-only entry points. The platform falls back to "no clipboard"
-    // on GTK4 until the GdkClipboard path is implemented.
+    // GTK3 exposes the synchronous GtkClipboard API; GTK4 removed it in favour of
+    // GdkClipboard (only set is sync; read is async via GAsyncReadyCallback).
+    // The GTK4 read path below pumps the main context until the callback fires.
 
     [LibraryImport(Gtk3, EntryPoint = "gdk_atom_intern", StringMarshalling = StringMarshalling.Utf8)]
     public static partial IntPtr AtomIntern(string atomName, [MarshalAs(UnmanagedType.U1)] bool onlyIfExists);
@@ -368,6 +386,23 @@ internal static partial class Gtk
 
     [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_wait_for_uris")]
     public static partial IntPtr ClipboardWaitForUris(IntPtr clipboard);
+
+    // GTK4 (and GTK3-with-GDK4) clipboard surface. The display getters live in
+    // libgtk-4 in modern distros (GDK is folded into the same so).
+    [LibraryImport(Gtk4, EntryPoint = "gdk_display_get_default")]
+    public static partial IntPtr Gdk4DisplayGetDefault();
+
+    [LibraryImport(Gtk4, EntryPoint = "gdk_display_get_clipboard")]
+    public static partial IntPtr Gdk4DisplayGetClipboard(IntPtr display);
+
+    [LibraryImport(Gtk4, EntryPoint = "gdk_clipboard_set_text", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gdk4ClipboardSetText(IntPtr clipboard, string text);
+
+    [LibraryImport(Gtk4, EntryPoint = "gdk_clipboard_read_text_async")]
+    public static partial void Gdk4ClipboardReadTextAsync(IntPtr clipboard, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gdk_clipboard_read_text_finish")]
+    public static partial IntPtr Gdk4ClipboardReadTextFinish(IntPtr clipboard, IntPtr result, IntPtr error);
 
     [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_set_with_data")]
     public static partial int ClipboardSetWithData(IntPtr clipboard, IntPtr targets, uint nTargets, IntPtr getFunc, IntPtr clearFunc, IntPtr userData);

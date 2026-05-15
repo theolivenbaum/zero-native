@@ -155,11 +155,23 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       against a `GMainLoop` on GTK4, the destroy callback returns
       gboolean to satisfy `close-request`, and `WebKitGtkPlatform`
       probes WebKit via `NativeLibrary.TryLoad` and pairs the GTK ABI
-      before any widget is created. GTK4 paths that lack a clean GTK4
-      equivalent — `GtkClipboard`, `GtkFileChooserDialog`, the
-      `configure-event`/`focus-in-event` signals — surface
-      `UnsupportedServiceException` until the `GdkClipboard` /
-      `GtkFileDialog` / `notify::default-width` wiring lands.
+      before any widget is created.
+- [x] **GTK4 clipboard text.** `ReadClipboard` / `WriteClipboard` use the
+      `gdk_display_get_clipboard` + `gdk_clipboard_set_text` path on GTK4;
+      reads call `gdk_clipboard_read_text_async` and pump
+      `g_main_context_iteration` until the callback fires (the GTK4
+      clipboard API has no synchronous read).
+- [x] **GTK4 resize/focus signals.** `notify::default-width` /
+      `notify::default-height` drive `WindowFrameChanged` + `SurfaceResized`,
+      and `notify::is-active` (gated by `gtk_window_is_active`) drives
+      `WindowFocused`. Position is reported as (0,0) on GTK4 because the
+      WM owns toplevel placement.
+- [ ] **GTK4 file/alert dialogs.** `GtkFileDialog` / `GtkAlertDialog`
+      replace the GTK3 `GtkFileChooserDialog` / `GtkMessageDialog`. Wiring
+      requires the same async-via-`g_main_context_iteration` pattern used
+      by the GTK4 clipboard read. Until then `ShowOpenDialog` /
+      `ShowSaveDialog` / `ShowMessageDialog` raise
+      `UnsupportedServiceException` on the GTK4 path.
 - [x] **Open / save / message dialogs** via `GtkFileChooserDialog` and
       `GtkMessageDialog`. See `GtkDialogs.cs` — file filters, multi-select,
       and primary/secondary/tertiary button mapping are all wired through

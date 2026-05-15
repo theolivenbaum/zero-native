@@ -241,6 +241,16 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
         BrowserFor(windowId)?.GetHost().SetFocus(true);
     }
 
+    void IPlatformServices.SetWindowFrame(ulong windowId, RectF frame)
+    {
+        var browser = BrowserFor(windowId)
+            ?? throw new WindowNotFoundException();
+        var handle = browser.GetHost().GetWindowHandle();
+        if (handle == IntPtr.Zero)
+            throw new UnsupportedServiceException("CEF browser has no native window handle yet");
+        CefNativeWindow.SetFrame(handle, frame);
+    }
+
     void IPlatformServices.CloseWindow(ulong windowId)
     {
         if (_browsers.TryGetValue(windowId, out var browser))

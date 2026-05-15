@@ -588,6 +588,65 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
         }
     }
 
+    byte[] IPlatformServices.ReadClipboardImage()
+    {
+        if (Gtk.IsGtk4) throw new UnsupportedServiceException("Image clipboard access on GTK4 requires the GdkClipboard ContentProvider binding (not yet ported)");
+        var atom = Gtk.AtomIntern("CLIPBOARD", false);
+        var clipboard = Gtk.ClipboardGet(atom);
+        if (clipboard == IntPtr.Zero) return Array.Empty<byte>();
+        var pixbuf = Gtk.ClipboardWaitForImage(clipboard);
+        if (pixbuf == IntPtr.Zero) return Array.Empty<byte>();
+        try
+        {
+            if (!Gtk.GdkPixbufSaveToBuffer(pixbuf, out var buf, out var size, "png", IntPtr.Zero, IntPtr.Zero) || buf == IntPtr.Zero)
+                return Array.Empty<byte>();
+            try
+            {
+                var bytes = new byte[(int)size];
+                Marshal.Copy(buf, bytes, 0, bytes.Length);
+                return bytes;
+            }
+            finally { Gtk.GFree(buf); }
+        }
+        finally { Gtk.GObjectUnref(pixbuf); }
+    }
+
+    void IPlatformServices.WriteClipboardImage(ReadOnlySpan<byte> bytes)
+    {
+        if (Gtk.IsGtk4) throw new UnsupportedServiceException("Image clipboard access on GTK4 requires the GdkClipboard ContentProvider binding (not yet ported)");
+        if (bytes.IsEmpty) return;
+        var loader = Gtk.GdkPixbufLoaderNew();
+        if (loader == IntPtr.Zero) throw new UnsupportedServiceException("gdk_pixbuf_loader_new failed");
+
+        IntPtr buf = Marshal.AllocHGlobal(bytes.Length);
+        try
+        {
+            unsafe
+            {
+                fixed (byte* src = bytes)
+                    Buffer.MemoryCopy(src, (void*)buf, bytes.Length, bytes.Length);
+            }
+            if (!Gtk.GdkPixbufLoaderWrite(loader, buf, (UIntPtr)(uint)bytes.Length, IntPtr.Zero))
+                throw new UnsupportedServiceException("gdk_pixbuf_loader_write failed (unrecognized image format?)");
+            if (!Gtk.GdkPixbufLoaderClose(loader, IntPtr.Zero))
+                throw new UnsupportedServiceException("gdk_pixbuf_loader_close failed");
+
+            var pixbuf = Gtk.GdkPixbufLoaderGetPixbuf(loader);
+            if (pixbuf == IntPtr.Zero) throw new UnsupportedServiceException("decoded pixbuf was null");
+
+            var atom = Gtk.AtomIntern("CLIPBOARD", false);
+            var clipboard = Gtk.ClipboardGet(atom);
+            if (clipboard == IntPtr.Zero) return;
+            Gtk.ClipboardSetImage(clipboard, pixbuf);
+            Gtk.ClipboardStore(clipboard);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buf);
+            Gtk.GObjectUnref(loader);
+        }
+    }
+
     IReadOnlyList<string> IPlatformServices.ReadClipboardFiles()
     {
         if (Gtk.IsGtk4) throw new UnsupportedServiceException("Clipboard access on GTK4 requires the GdkClipboard binding (not yet ported)");

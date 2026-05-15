@@ -393,18 +393,23 @@ so consumers know to expect them.
   Read is wired on GTK3 via `gtk_clipboard_wait_for_uris`; write would
   require a target-providing source. macOS and Windows write file lists
   today.
-- **Linux image clipboard** (`ReadClipboardImage` / `WriteClipboardImage`).
-  Both raise `UnsupportedServiceException` on Linux. Adding them needs the
-  `gtk_clipboard_set_image` / `gdk_pixbuf_loader_*` plumbing. macOS and
-  Windows wire `public.png` / `CF_DIB` respectively.
+- **Linux image clipboard on GTK4.** GTK3 reads `gtk_clipboard_wait_for_image`
+  and writes via `gdk_pixbuf_loader_*` + `gtk_clipboard_set_image` (PNG
+  round-trip, matching the macOS `public.png` and Windows `CF_DIB` paths).
+  The GTK4 path still throws — porting it needs a `GdkContentProvider` for
+  writes and `gdk_clipboard_read_async("image/png", ...)` for reads.
 - **GTK4 file-clipboard reads.** GTK3 uses
   `gtk_clipboard_wait_for_uris`; the GTK4 binding for content-provider
   file lists is not yet ported, so `ReadClipboardFiles` throws on GTK4.
   Text read/write works on both ABIs.
-- **CEF `SetWindowFrame`.** CEF doesn't expose programmatic geometry the
-  way WebView2 / WKWebView / GtkWindow do, so the CEF host raises
-  `UnsupportedServiceException`. The runtime swallows the exception, so
-  callers fall back to the initial frame.
+- **CEF window frame on Wayland / non-X11 Linux.** CEF popup-style hosting
+  exposes `GetWindowHandle()` per-OS: HWND on Windows, `NSView*` on macOS,
+  and an X11 XID on Linux. The CEF host now bridges these to native
+  `SetWindowPos` (Win32, walking up via `GetAncestor(GA_ROOT)`),
+  `setFrame:display:` on the NSView's NSWindow (translating top-left to
+  Cocoa's bottom-left), and `XMoveResizeWindow` against the X11 toplevel.
+  Wayland-only sessions and non-X11 Linux fall back to the initial frame
+  (XOpenDisplay would fail and the runtime swallows the exception).
 - **CefGlue macOS arm64.** `CefGlue.Common 120.x` does not ship a
   `cef.redist.osxarm64` payload. Use `tools/stage-cef-macos-arm64.sh` and
   point `CefPlatformOptions.CefDirectory` at the staged folder until

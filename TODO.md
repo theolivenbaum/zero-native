@@ -225,8 +225,6 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       pre-release/build, identity, bridge commands, security policy,
       frontend dev config, windows, CEF, package, updates). A TOML
       loader is still open.
-- [ ] **Strong-name / signing.** Decide on an `AssemblyOriginatorKeyFile`
-      and Authenticode/macOS notarization story for the published NuGets.
 
 ## Tests
 
@@ -285,6 +283,11 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 - [ ] Port the docs site under `.reference/docs/` (Next.js MDX) to point
       at the C# API surface, or replace with DocFX / .NET docs.
+- [ ] **Build the docs site with Neko.** Use the
+      [Neko](https://github.com/theolivenbaum/neko) static-site generator
+      (Markdown + components, Razor/H5 friendly) to publish the API and
+      guide pages. Author content under `docs/`, drive Neko from the
+      `pack` CI job, and publish to GitHub Pages.
 - [x] Per-package READMEs that get embedded in the NuGet.
 - [x] Architecture diagram showing `Core` ↔ platform backends ↔ host apps
       (`README.md` "Architecture" section).
@@ -297,9 +300,21 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       state store), so the package builds cleanly under the AOT analyzer.
       Platform host packages still need their own AOT audit when
       consumers publish AOT-ready apps.
-- [ ] **MAUI / Avalonia integration samples.** Demonstrate hosting
-      `Runtime` inside a MAUI or Avalonia app for projects that want
-      richer native chrome around the WebView.
+- [ ] **Velopack installer documentation.** Document how to ship a
+      ZeroNative app as a self-updating installer with
+      [Velopack](https://velopack.io): per-OS packaging
+      (`vpk pack` for Windows MSIX/Setup.exe, macOS `.app`/`.pkg`, Linux
+      AppImage/`.deb`), update feed wiring (`UpdateManager`), and how the
+      generated `Velopack.UpdateExe` interacts with the `ZeroNative.AppBundle`
+      MSBuild target on macOS. Include a worked example under `docs/`.
+- [ ] **Sample app: ZeroNative + Tesserae/H5 + Kestrel endpoints.** Build
+      a reference app that pairs the ZeroNative host with
+      [Tesserae](https://github.com/curiosity-ai/tesserae)
+      (H5-compiled, in-browser UI), and an in-process Kestrel server
+      exposing a handful of `Map*` endpoints that the WebView calls via
+      `fetch`. Demonstrates the "C# everywhere" path: H5 transpiles
+      the frontend to JS, Kestrel handles the data plane, ZeroNative
+      ships the desktop shell. Lands under `samples/ZeroNative.Sample.Tesserae`.
 - [x] **Hot reload of the web bundle.** `ZeroNative.Tooling.DevServer`
       (in `src/ZeroNative.Core/Tooling/DevServer.cs`) mirrors the Zig
       `tooling/dev.zig`: parse the dev URL, optionally spawn the dev

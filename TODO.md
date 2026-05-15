@@ -155,11 +155,25 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       against a `GMainLoop` on GTK4, the destroy callback returns
       gboolean to satisfy `close-request`, and `WebKitGtkPlatform`
       probes WebKit via `NativeLibrary.TryLoad` and pairs the GTK ABI
-      before any widget is created. GTK4 paths that lack a clean GTK4
-      equivalent — `GtkClipboard`, `GtkFileChooserDialog`, the
-      `configure-event`/`focus-in-event` signals — surface
-      `UnsupportedServiceException` until the `GdkClipboard` /
-      `GtkFileDialog` / `notify::default-width` wiring lands.
+      before any widget is created.
+- [x] **GTK4 clipboard text.** `ReadClipboard` / `WriteClipboard` use the
+      `gdk_display_get_clipboard` + `gdk_clipboard_set_text` path on GTK4;
+      reads call `gdk_clipboard_read_text_async` and pump
+      `g_main_context_iteration` until the callback fires (the GTK4
+      clipboard API has no synchronous read).
+- [x] **GTK4 resize/focus signals.** `notify::default-width` /
+      `notify::default-height` drive `WindowFrameChanged` + `SurfaceResized`,
+      and `notify::is-active` (gated by `gtk_window_is_active`) drives
+      `WindowFocused`. Position is reported as (0,0) on GTK4 because the
+      WM owns toplevel placement.
+- [x] **GTK4 file/alert dialogs.** `GtkFileDialog` / `GtkAlertDialog` are
+      bound under `Gtk4Dialogs.cs`. `ShowOpen` /  `ShowSave` /
+      `ShowMessage` (folder-picker via `gtk_file_dialog_select_folder`
+      when `AllowDirectories=true`) all drive the async API through
+      `g_main_context_iteration` until the `GAsyncReadyCallback` fires,
+      then unwrap the result via the matching `*_finish` getter. Filters
+      pack into a `GListStore` of `GtkFileFilter`; alert buttons are
+      packed into a NULL-terminated `char**`.
 - [x] **Open / save / message dialogs** via `GtkFileChooserDialog` and
       `GtkMessageDialog`. See `GtkDialogs.cs` — file filters, multi-select,
       and primary/secondary/tertiary button mapping are all wired through

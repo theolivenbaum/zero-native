@@ -157,6 +157,15 @@ internal static partial class Gtk
     [return: MarshalAs(UnmanagedType.I4)]
     public static partial int EventsPending();
 
+    /// <summary>
+    /// Iterates the default GMainContext once, blocking until at least one source
+    /// dispatches. Used to drive async GLib APIs (e.g. GdkClipboard's text read,
+    /// GtkFileDialog) into a synchronous return on the calling thread.
+    /// </summary>
+    [LibraryImport(Glib, EntryPoint = "g_main_context_iteration")]
+    [return: MarshalAs(UnmanagedType.I4)]
+    public static partial int MainContextIteration(IntPtr context, [MarshalAs(UnmanagedType.U1)] bool mayBlock);
+
     // ---- Windows ----
 
     public static IntPtr WindowNew(int type) => s_abi switch
@@ -343,16 +352,25 @@ internal static partial class Gtk
     [LibraryImport(Gtk4, EntryPoint = "gtk_widget_get_scale_factor")]
     private static partial int Gtk4WidgetGetScaleFactor(IntPtr widget);
 
+    /// <summary>
+    /// GTK4 read for <c>GtkWindow:is-active</c>. Used by the notify::is-active
+    /// callback to suppress focus-loss events.
+    /// </summary>
+    [LibraryImport(Gtk4, EntryPoint = "gtk_window_is_active")]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool Gtk4WindowIsActive(IntPtr window);
+
     // ---- Signals (shared GObject path) ----
 
     [LibraryImport(GObject, EntryPoint = "g_signal_connect_data", StringMarshalling = StringMarshalling.Utf8)]
     public static partial ulong SignalConnectData(
         IntPtr instance, string signalName, IntPtr handler, IntPtr data, IntPtr destroyData, int flags);
 
-    // ---- Clipboard (GTK3 API surface; the GTK4 clipboard uses GdkClipboard + GdkContentProvider) ----
+    // ---- Clipboard ----
     //
-    // These remain GTK3-only entry points. The platform falls back to "no clipboard"
-    // on GTK4 until the GdkClipboard path is implemented.
+    // GTK3 exposes the synchronous GtkClipboard API; GTK4 removed it in favour of
+    // GdkClipboard (only set is sync; read is async via GAsyncReadyCallback).
+    // The GTK4 read path below pumps the main context until the callback fires.
 
     [LibraryImport(Gtk3, EntryPoint = "gdk_atom_intern", StringMarshalling = StringMarshalling.Utf8)]
     public static partial IntPtr AtomIntern(string atomName, [MarshalAs(UnmanagedType.U1)] bool onlyIfExists);
@@ -368,6 +386,23 @@ internal static partial class Gtk
 
     [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_wait_for_uris")]
     public static partial IntPtr ClipboardWaitForUris(IntPtr clipboard);
+
+    // GTK4 (and GTK3-with-GDK4) clipboard surface. The display getters live in
+    // libgtk-4 in modern distros (GDK is folded into the same so).
+    [LibraryImport(Gtk4, EntryPoint = "gdk_display_get_default")]
+    public static partial IntPtr Gdk4DisplayGetDefault();
+
+    [LibraryImport(Gtk4, EntryPoint = "gdk_display_get_clipboard")]
+    public static partial IntPtr Gdk4DisplayGetClipboard(IntPtr display);
+
+    [LibraryImport(Gtk4, EntryPoint = "gdk_clipboard_set_text", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gdk4ClipboardSetText(IntPtr clipboard, string text);
+
+    [LibraryImport(Gtk4, EntryPoint = "gdk_clipboard_read_text_async")]
+    public static partial void Gdk4ClipboardReadTextAsync(IntPtr clipboard, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gdk_clipboard_read_text_finish")]
+    public static partial IntPtr Gdk4ClipboardReadTextFinish(IntPtr clipboard, IntPtr result, IntPtr error);
 
     [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_set_with_data")]
     public static partial int ClipboardSetWithData(IntPtr clipboard, IntPtr targets, uint nTargets, IntPtr getFunc, IntPtr clearFunc, IntPtr userData);
@@ -476,6 +511,102 @@ internal static partial class Gtk
 
     [LibraryImport(Glib, EntryPoint = "g_slist_free")]
     public static partial void SListFree(IntPtr list);
+
+    // ---- GTK4 file / alert dialogs (async APIs) ----
+    //
+    // GTK4 replaced GtkFileChooserDialog with GtkFileDialog and GtkMessageDialog
+    // with GtkAlertDialog. Both expose only async entry points; the platform
+    // drives them via g_main_context_iteration in the same pattern as the GTK4
+    // clipboard read.
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_new")]
+    public static partial IntPtr Gtk4FileDialogNew();
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_set_title", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gtk4FileDialogSetTitle(IntPtr dialog, string title);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_set_initial_folder")]
+    public static partial void Gtk4FileDialogSetInitialFolder(IntPtr dialog, IntPtr folder);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_set_initial_name", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gtk4FileDialogSetInitialName(IntPtr dialog, string name);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_set_filters")]
+    public static partial void Gtk4FileDialogSetFilters(IntPtr dialog, IntPtr filters);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_open")]
+    public static partial void Gtk4FileDialogOpen(IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_open_multiple")]
+    public static partial void Gtk4FileDialogOpenMultiple(IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_save")]
+    public static partial void Gtk4FileDialogSave(IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_select_folder")]
+    public static partial void Gtk4FileDialogSelectFolder(IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_open_finish")]
+    public static partial IntPtr Gtk4FileDialogOpenFinish(IntPtr dialog, IntPtr result, IntPtr error);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_open_multiple_finish")]
+    public static partial IntPtr Gtk4FileDialogOpenMultipleFinish(IntPtr dialog, IntPtr result, IntPtr error);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_save_finish")]
+    public static partial IntPtr Gtk4FileDialogSaveFinish(IntPtr dialog, IntPtr result, IntPtr error);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_select_folder_finish")]
+    public static partial IntPtr Gtk4FileDialogSelectFolderFinish(IntPtr dialog, IntPtr result, IntPtr error);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_filter_new")]
+    public static partial IntPtr Gtk4FileFilterNew();
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_filter_set_name", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gtk4FileFilterSetName(IntPtr filter, string name);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_filter_add_pattern", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gtk4FileFilterAddPattern(IntPtr filter, string pattern);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_filter_get_type")]
+    public static partial IntPtr Gtk4FileFilterGetType();
+
+    // GIO helpers used by GtkFileDialog (GFile / GListStore / GListModel).
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_list_store_new")]
+    public static partial IntPtr GListStoreNew(IntPtr itemType);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_list_store_append")]
+    public static partial void GListStoreAppend(IntPtr store, IntPtr item);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_list_model_get_n_items")]
+    public static partial uint GListModelGetNItems(IntPtr model);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_list_model_get_item")]
+    public static partial IntPtr GListModelGetItem(IntPtr model, uint position);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_file_new_for_path", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial IntPtr GFileNewForPath(string path);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_file_get_path")]
+    public static partial IntPtr GFileGetPath(IntPtr file);
+
+    [LibraryImport(GObject, EntryPoint = "g_object_unref")]
+    public static partial void GObjectUnref(IntPtr obj);
+
+    // GtkAlertDialog.
+    [LibraryImport(Gtk4, EntryPoint = "gtk_alert_dialog_new", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial IntPtr Gtk4AlertDialogNew(string format);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_alert_dialog_set_detail", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gtk4AlertDialogSetDetail(IntPtr dialog, string detail);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_alert_dialog_set_buttons")]
+    public static partial void Gtk4AlertDialogSetButtons(IntPtr dialog, IntPtr buttons);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_alert_dialog_choose")]
+    public static partial void Gtk4AlertDialogChoose(IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_alert_dialog_choose_finish")]
+    public static partial int Gtk4AlertDialogChooseFinish(IntPtr dialog, IntPtr result, IntPtr error);
 }
 
 [SupportedOSPlatform("linux")]

@@ -4,27 +4,150 @@ using System.Runtime.Versioning;
 namespace ZeroNative.Linux;
 
 /// <summary>
-/// Minimal P/Invoke bindings for GTK3 and WebKit2GTK.
-/// We target gtk-3 / webkit2gtk-4.1 (modern distros) - fall back to 4.0 if 4.1 unavailable.
+/// Minimal P/Invoke bindings for GTK3/GTK4 + WebKit2GTK/WebKitGTK6.
+///
+/// <para>
+/// GTK3 is the default on most distros and pairs with WebKit2GTK 4.0/4.1.
+/// GTK4 is required when the available WebKit binding is WebKitGTK 6.0 — the
+/// new ABI binds to GTK4 widgets and rejects GTK3 toplevels at load time.
+/// The runtime probes both libraries lazily and dispatches each call through
+/// the detected ABI; <see cref="PairWithWebKit"/> is invoked from the platform
+/// after WebKit picks its own ABI so the GTK side stays consistent.
+/// </para>
 /// </summary>
 [SupportedOSPlatform("linux")]
 internal static partial class Gtk
 {
     private const string Gtk3 = "libgtk-3.so.0";
+    private const string Gtk4 = "libgtk-4.so.1";
     private const string Glib = "libglib-2.0.so.0";
     private const string GObject = "libgobject-2.0.so.0";
 
+    public enum GtkAbi { Unknown, Three, Four }
+
+    private static GtkAbi s_abi = GtkAbi.Unknown;
+    private static IntPtr s_mainLoop4;
+
+    public static GtkAbi Abi => s_abi;
+    public static bool IsGtk4 => s_abi == GtkAbi.Four;
+
+    // GTK3 "window type" constant; ignored on GTK4 (gtk_window_new() takes no args there).
     public const int GtkWindowToplevel = 0;
     public const int GdkGravityNorthWest = 1;
 
+    /// <summary>
+    /// Aligns the GTK ABI with the picked WebKit ABI: WebKitGTK 6.0 requires GTK4;
+    /// the legacy 4.x WebKit chain requires GTK3. The first matching probe wins;
+    /// if neither succeeds the call throws so the platform can fail loudly.
+    /// </summary>
+    public static void PairWithWebKit(WebKit.WebKitAbi webKitAbi)
+    {
+        if (s_abi != GtkAbi.Unknown) return;
+
+        if (webKitAbi == WebKit.WebKitAbi.Six)
+        {
+            if (TryProbeGtk4()) { s_abi = GtkAbi.Four; return; }
+            if (TryProbeGtk3()) { s_abi = GtkAbi.Three; return; }
+            throw new DllNotFoundException("WebKitGTK 6.0 is present but neither libgtk-4 nor libgtk-3 could be loaded");
+        }
+
+        if (TryProbeGtk3()) { s_abi = GtkAbi.Three; return; }
+        if (TryProbeGtk4()) { s_abi = GtkAbi.Four; return; }
+        throw new DllNotFoundException("Neither libgtk-3 nor libgtk-4 could be loaded");
+    }
+
+    private static bool TryProbeGtk3()
+    {
+        try { _ = Gtk3InitCheck(); return true; }
+        catch (DllNotFoundException) { return false; }
+        catch (EntryPointNotFoundException) { return false; }
+    }
+
+    private static bool TryProbeGtk4()
+    {
+        try { _ = Gtk4InitCheck(); return true; }
+        catch (DllNotFoundException) { return false; }
+        catch (EntryPointNotFoundException) { return false; }
+    }
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_init_check")]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static partial bool Gtk3InitCheck();
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_init_check")]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static partial bool Gtk4InitCheck();
+
+    // ---- Init / main loop ----
+    //
+    // GTK3: gtk_init(&argc, &argv) + gtk_main() / gtk_main_quit().
+    // GTK4: gtk_init() (no args) + a GMainLoop the platform spins manually.
+
+    public static void Init(ref int argc, IntPtr argv)
+    {
+        switch (s_abi)
+        {
+            case GtkAbi.Four:
+                Gtk4Init();
+                break;
+            default:
+                Gtk3Init(ref argc, argv);
+                break;
+        }
+    }
+
+    public static void Main()
+    {
+        switch (s_abi)
+        {
+            case GtkAbi.Four:
+                s_mainLoop4 = MainLoopNew(IntPtr.Zero, 0);
+                MainLoopRun(s_mainLoop4);
+                MainLoopUnref(s_mainLoop4);
+                s_mainLoop4 = IntPtr.Zero;
+                break;
+            default:
+                Gtk3Main();
+                break;
+        }
+    }
+
+    public static void MainQuit()
+    {
+        switch (s_abi)
+        {
+            case GtkAbi.Four:
+                if (s_mainLoop4 != IntPtr.Zero) MainLoopQuit(s_mainLoop4);
+                break;
+            default:
+                Gtk3MainQuit();
+                break;
+        }
+    }
+
     [LibraryImport(Gtk3, EntryPoint = "gtk_init")]
-    public static partial void Init(ref int argc, IntPtr argv);
+    private static partial void Gtk3Init(ref int argc, IntPtr argv);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_init")]
+    private static partial void Gtk4Init();
 
     [LibraryImport(Gtk3, EntryPoint = "gtk_main")]
-    public static partial void Main();
+    private static partial void Gtk3Main();
 
     [LibraryImport(Gtk3, EntryPoint = "gtk_main_quit")]
-    public static partial void MainQuit();
+    private static partial void Gtk3MainQuit();
+
+    [LibraryImport(Glib, EntryPoint = "g_main_loop_new")]
+    private static partial IntPtr MainLoopNew(IntPtr context, int isRunning);
+
+    [LibraryImport(Glib, EntryPoint = "g_main_loop_run")]
+    private static partial void MainLoopRun(IntPtr loop);
+
+    [LibraryImport(Glib, EntryPoint = "g_main_loop_quit")]
+    private static partial void MainLoopQuit(IntPtr loop);
+
+    [LibraryImport(Glib, EntryPoint = "g_main_loop_unref")]
+    private static partial void MainLoopUnref(IntPtr loop);
 
     [LibraryImport(Gtk3, EntryPoint = "gtk_main_iteration_do")]
     [return: MarshalAs(UnmanagedType.I4)]
@@ -34,27 +157,202 @@ internal static partial class Gtk
     [return: MarshalAs(UnmanagedType.I4)]
     public static partial int EventsPending();
 
+    // ---- Windows ----
+
+    public static IntPtr WindowNew(int type) => s_abi switch
+    {
+        GtkAbi.Four => Gtk4WindowNew(),
+        _ => Gtk3WindowNew(type),
+    };
+
+    public static void WindowSetTitle(IntPtr window, string title)
+    {
+        if (s_abi == GtkAbi.Four) Gtk4WindowSetTitle(window, title);
+        else Gtk3WindowSetTitle(window, title);
+    }
+
+    public static void WindowSetDefaultSize(IntPtr window, int width, int height)
+    {
+        if (s_abi == GtkAbi.Four) Gtk4WindowSetDefaultSize(window, width, height);
+        else Gtk3WindowSetDefaultSize(window, width, height);
+    }
+
+    public static void WindowSetResizable(IntPtr window, bool resizable)
+    {
+        if (s_abi == GtkAbi.Four) Gtk4WindowSetResizable(window, resizable);
+        else Gtk3WindowSetResizable(window, resizable);
+    }
+
+    /// <summary>
+    /// Adds <paramref name="child"/> to <paramref name="window"/>.
+    /// On GTK3 this is <c>gtk_container_add</c>; on GTK4 it is the single-child
+    /// <c>gtk_window_set_child</c> (toplevels no longer behave as generic containers).
+    /// </summary>
+    public static void WindowSetChild(IntPtr window, IntPtr child)
+    {
+        if (s_abi == GtkAbi.Four) Gtk4WindowSetChild(window, child);
+        else Gtk3ContainerAdd(window, child);
+    }
+
+    /// <summary>
+    /// Backwards-compatible alias retained for callers that still think in GTK3
+    /// container terms. New code should prefer <see cref="WindowSetChild"/>.
+    /// </summary>
+    public static void ContainerAdd(IntPtr window, IntPtr child) => WindowSetChild(window, child);
+
+    /// <summary>
+    /// Makes the window visible. GTK3 uses <c>gtk_widget_show_all</c> to recurse
+    /// into the container; GTK4 windows always show their child tree so we just
+    /// present the window.
+    /// </summary>
+    public static void WidgetShowAll(IntPtr window)
+    {
+        if (s_abi == GtkAbi.Four) Gtk4WindowPresent(window);
+        else Gtk3WidgetShowAll(window);
+    }
+
+    public static void WindowPresent(IntPtr window)
+    {
+        if (s_abi == GtkAbi.Four) Gtk4WindowPresent(window);
+        else Gtk3WindowPresent(window);
+    }
+
+    /// <summary>
+    /// Destroys the window. On GTK4 the symbol is <c>gtk_window_destroy</c>
+    /// (the GTK3 <c>gtk_widget_destroy</c> entry point is gone).
+    /// </summary>
+    public static void WidgetDestroy(IntPtr window)
+    {
+        if (s_abi == GtkAbi.Four) Gtk4WindowDestroy(window);
+        else Gtk3WidgetDestroy(window);
+    }
+
+    public static void WindowMove(IntPtr window, int x, int y)
+    {
+        // GTK4 deliberately removed programmatic positioning; the WM owns placement now.
+        if (s_abi == GtkAbi.Four) return;
+        Gtk3WindowMove(window, x, y);
+    }
+
+    public static void WindowResize(IntPtr window, int width, int height)
+    {
+        // GTK4 has no gtk_window_resize; reuse gtk_window_set_default_size which
+        // applies on the next allocation.
+        if (s_abi == GtkAbi.Four) Gtk4WindowSetDefaultSize(window, width, height);
+        else Gtk3WindowResize(window, width, height);
+    }
+
+    public static void WindowGetPosition(IntPtr window, out int rootX, out int rootY)
+    {
+        if (s_abi == GtkAbi.Four)
+        {
+            // GTK4 doesn't expose absolute window positions; report origin so callers
+            // still see a stable rectangle.
+            rootX = 0;
+            rootY = 0;
+            return;
+        }
+        Gtk3WindowGetPosition(window, out rootX, out rootY);
+    }
+
+    public static void WindowGetSize(IntPtr window, out int width, out int height)
+    {
+        if (s_abi == GtkAbi.Four)
+        {
+            width = Gtk4WidgetGetWidth(window);
+            height = Gtk4WidgetGetHeight(window);
+            return;
+        }
+        Gtk3WindowGetSize(window, out width, out height);
+    }
+
+    public static int WidgetGetScaleFactor(IntPtr widget) => s_abi switch
+    {
+        GtkAbi.Four => Gtk4WidgetGetScaleFactor(widget),
+        _ => Gtk3WidgetGetScaleFactor(widget),
+    };
+
+    // GTK3 window symbols.
     [LibraryImport(Gtk3, EntryPoint = "gtk_window_new")]
-    public static partial IntPtr WindowNew(int type);
+    private static partial IntPtr Gtk3WindowNew(int type);
 
     [LibraryImport(Gtk3, EntryPoint = "gtk_window_set_title", StringMarshalling = StringMarshalling.Utf8)]
-    public static partial void WindowSetTitle(IntPtr window, string title);
+    private static partial void Gtk3WindowSetTitle(IntPtr window, string title);
 
     [LibraryImport(Gtk3, EntryPoint = "gtk_window_set_default_size")]
-    public static partial void WindowSetDefaultSize(IntPtr window, int width, int height);
+    private static partial void Gtk3WindowSetDefaultSize(IntPtr window, int width, int height);
 
-    [LibraryImport(Gtk3, EntryPoint = "gtk_widget_show_all")]
-    public static partial void WidgetShowAll(IntPtr widget);
-
-    [LibraryImport(Gtk3, EntryPoint = "gtk_widget_destroy")]
-    public static partial void WidgetDestroy(IntPtr widget);
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_set_resizable")]
+    private static partial void Gtk3WindowSetResizable(IntPtr window, [MarshalAs(UnmanagedType.U1)] bool resizable);
 
     [LibraryImport(Gtk3, EntryPoint = "gtk_container_add")]
-    public static partial void ContainerAdd(IntPtr container, IntPtr child);
+    private static partial void Gtk3ContainerAdd(IntPtr container, IntPtr child);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_widget_show_all")]
+    private static partial void Gtk3WidgetShowAll(IntPtr widget);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_widget_destroy")]
+    private static partial void Gtk3WidgetDestroy(IntPtr widget);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_get_position")]
+    private static partial void Gtk3WindowGetPosition(IntPtr window, out int rootX, out int rootY);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_get_size")]
+    private static partial void Gtk3WindowGetSize(IntPtr window, out int width, out int height);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_widget_get_scale_factor")]
+    private static partial int Gtk3WidgetGetScaleFactor(IntPtr widget);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_present")]
+    private static partial void Gtk3WindowPresent(IntPtr window);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_move")]
+    private static partial void Gtk3WindowMove(IntPtr window, int x, int y);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_window_resize")]
+    private static partial void Gtk3WindowResize(IntPtr window, int width, int height);
+
+    // GTK4 window symbols.
+    [LibraryImport(Gtk4, EntryPoint = "gtk_window_new")]
+    private static partial IntPtr Gtk4WindowNew();
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_window_set_title", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial void Gtk4WindowSetTitle(IntPtr window, string title);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_window_set_default_size")]
+    private static partial void Gtk4WindowSetDefaultSize(IntPtr window, int width, int height);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_window_set_resizable")]
+    private static partial void Gtk4WindowSetResizable(IntPtr window, [MarshalAs(UnmanagedType.U1)] bool resizable);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_window_set_child")]
+    private static partial void Gtk4WindowSetChild(IntPtr window, IntPtr child);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_window_present")]
+    private static partial void Gtk4WindowPresent(IntPtr window);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_window_destroy")]
+    private static partial void Gtk4WindowDestroy(IntPtr window);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_widget_get_width")]
+    private static partial int Gtk4WidgetGetWidth(IntPtr widget);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_widget_get_height")]
+    private static partial int Gtk4WidgetGetHeight(IntPtr widget);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_widget_get_scale_factor")]
+    private static partial int Gtk4WidgetGetScaleFactor(IntPtr widget);
+
+    // ---- Signals (shared GObject path) ----
 
     [LibraryImport(GObject, EntryPoint = "g_signal_connect_data", StringMarshalling = StringMarshalling.Utf8)]
     public static partial ulong SignalConnectData(
         IntPtr instance, string signalName, IntPtr handler, IntPtr data, IntPtr destroyData, int flags);
+
+    // ---- Clipboard (GTK3 API surface; the GTK4 clipboard uses GdkClipboard + GdkContentProvider) ----
+    //
+    // These remain GTK3-only entry points. The platform falls back to "no clipboard"
+    // on GTK4 until the GdkClipboard path is implemented.
 
     [LibraryImport(Gtk3, EntryPoint = "gdk_atom_intern", StringMarshalling = StringMarshalling.Utf8)]
     public static partial IntPtr AtomIntern(string atomName, [MarshalAs(UnmanagedType.U1)] bool onlyIfExists);
@@ -83,29 +381,7 @@ internal static partial class Gtk
     [LibraryImport(Glib, EntryPoint = "g_free")]
     public static partial void GFree(IntPtr ptr);
 
-    // Window event APIs used to forward configure/focus signals to the runtime.
-    [LibraryImport(Gtk3, EntryPoint = "gtk_window_get_position")]
-    public static partial void WindowGetPosition(IntPtr window, out int rootX, out int rootY);
-
-    [LibraryImport(Gtk3, EntryPoint = "gtk_window_get_size")]
-    public static partial void WindowGetSize(IntPtr window, out int width, out int height);
-
-    [LibraryImport(Gtk3, EntryPoint = "gtk_widget_get_scale_factor")]
-    public static partial int WidgetGetScaleFactor(IntPtr widget);
-
-    [LibraryImport(Gtk3, EntryPoint = "gtk_window_present")]
-    public static partial void WindowPresent(IntPtr window);
-
-    [LibraryImport(Gtk3, EntryPoint = "gtk_window_move")]
-    public static partial void WindowMove(IntPtr window, int x, int y);
-
-    [LibraryImport(Gtk3, EntryPoint = "gtk_window_resize")]
-    public static partial void WindowResize(IntPtr window, int width, int height);
-
-    [LibraryImport(Gtk3, EntryPoint = "gtk_window_set_resizable")]
-    public static partial void WindowSetResizable(IntPtr window, [MarshalAs(UnmanagedType.U1)] bool resizable);
-
-    // Dialog APIs.
+    // ---- Dialog APIs (GTK3-only; GTK4 replaces these with the GtkFileDialog async APIs) ----
     public const int ResponseAccept = -3;
     public const int ResponseCancel = -6;
     public const int ResponseOk = -5;
@@ -221,6 +497,23 @@ internal static partial class WebKit
     private static WebKitAbi s_abi = WebKitAbi.Unknown;
 
     public static WebKitAbi Abi => s_abi;
+
+    /// <summary>
+    /// Non-invasive ABI probe: tries to load each WebKitGTK soname via
+    /// <see cref="NativeLibrary.TryLoad(string, out IntPtr)"/> and remembers the
+    /// first hit. The .NET P/Invoke loader doesn't unload the handle so the
+    /// subsequent <c>LibraryImport</c> calls reuse the cached binding.
+    /// Calling this before <c>gtk_init</c> lets the host pair the GTK ABI
+    /// against the WebKit one without creating any widgets first.
+    /// </summary>
+    public static WebKitAbi Probe()
+    {
+        if (s_abi != WebKitAbi.Unknown) return s_abi;
+        if (NativeLibrary.TryLoad(WebKit41, out _)) { s_abi = WebKitAbi.FourOne; return s_abi; }
+        if (NativeLibrary.TryLoad(WebKit40, out _)) { s_abi = WebKitAbi.FourZero; return s_abi; }
+        if (NativeLibrary.TryLoad(WebKit60, out _)) { s_abi = WebKitAbi.Six; return s_abi; }
+        return WebKitAbi.Unknown;
+    }
 
     public static IntPtr WebViewNew()
     {

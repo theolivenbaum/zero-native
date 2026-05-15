@@ -10,6 +10,8 @@ public sealed class NullPlatform : IPlatform, IPlatformServices
 {
     private readonly List<WindowInfo> _windows = new();
     private readonly Dictionary<ulong, WebViewSource> _windowSources = new();
+    private readonly Dictionary<ulong, string> _windowBridgeResponses = new();
+    private readonly List<WindowEventRecord> _windowEvents = new();
 
     public string Name => "null";
     public Surface Surface { get; }
@@ -23,6 +25,15 @@ public sealed class NullPlatform : IPlatform, IPlatformServices
 
     public string LastBridgeResponse { get; private set; } = "";
     public ulong LastBridgeResponseWindowId { get; private set; }
+
+    /// <summary>Source loaded into each known window, keyed by window id.</summary>
+    public IReadOnlyDictionary<ulong, WebViewSource> WindowSources => _windowSources;
+
+    /// <summary>Most recent bridge response delivered per window, keyed by window id.</summary>
+    public IReadOnlyDictionary<ulong, string> WindowBridgeResponses => _windowBridgeResponses;
+
+    /// <summary>Every <c>EmitWindowEvent</c> call observed, in dispatch order.</summary>
+    public IReadOnlyList<WindowEventRecord> WindowEvents => _windowEvents;
 
     public NullPlatform()
         : this(new Surface(), WebEngine.System, new AppInfo()) { }
@@ -76,6 +87,7 @@ public sealed class NullPlatform : IPlatform, IPlatformServices
     {
         LastBridgeResponse = response;
         LastBridgeResponseWindowId = windowId;
+        _windowBridgeResponses[windowId] = response;
     }
 
     WindowInfo IPlatformServices.CreateWindow(WindowOptions options)
@@ -120,5 +132,13 @@ public sealed class NullPlatform : IPlatform, IPlatformServices
         LastSecurityPolicy = policy;
     }
 
-    void IPlatformServices.EmitWindowEvent(ulong windowId, string eventName, string detailJson) { }
+    void IPlatformServices.EmitWindowEvent(ulong windowId, string eventName, string detailJson)
+    {
+        _windowEvents.Add(new WindowEventRecord(windowId, eventName, detailJson));
+    }
 }
+
+/// <summary>
+/// Snapshot of a single <see cref="IPlatformServices.EmitWindowEvent"/> call.
+/// </summary>
+public sealed record WindowEventRecord(ulong WindowId, string Name, string DetailJson);

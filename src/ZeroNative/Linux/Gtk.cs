@@ -410,6 +410,38 @@ internal static partial class Gtk
     [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_store")]
     public static partial void ClipboardStore(IntPtr clipboard);
 
+    // GTK3 image clipboard. wait_for_image returns a transfer-full GdkPixbuf*
+    // (must be unref'd by the caller); set_image takes a borrowed reference and
+    // the clipboard installs its own owner.
+    [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_wait_for_image")]
+    public static partial IntPtr ClipboardWaitForImage(IntPtr clipboard);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_set_image")]
+    public static partial void ClipboardSetImage(IntPtr clipboard, IntPtr pixbuf);
+
+    // gdk-pixbuf serialization. save_to_buffer writes a newly allocated buffer
+    // that must be released with g_free. The matching loader_new/write/close path
+    // decodes any format the system understands (PNG, JPEG, ...).
+    private const string GdkPixbuf = "libgdk_pixbuf-2.0.so.0";
+
+    [LibraryImport(GdkPixbuf, EntryPoint = "gdk_pixbuf_save_to_buffer", StringMarshalling = StringMarshalling.Utf8)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool GdkPixbufSaveToBuffer(IntPtr pixbuf, out IntPtr buffer, out UIntPtr bufferSize, string type, IntPtr error, IntPtr sentinel);
+
+    [LibraryImport(GdkPixbuf, EntryPoint = "gdk_pixbuf_loader_new")]
+    public static partial IntPtr GdkPixbufLoaderNew();
+
+    [LibraryImport(GdkPixbuf, EntryPoint = "gdk_pixbuf_loader_write")]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool GdkPixbufLoaderWrite(IntPtr loader, IntPtr data, UIntPtr count, IntPtr error);
+
+    [LibraryImport(GdkPixbuf, EntryPoint = "gdk_pixbuf_loader_close")]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool GdkPixbufLoaderClose(IntPtr loader, IntPtr error);
+
+    [LibraryImport(GdkPixbuf, EntryPoint = "gdk_pixbuf_loader_get_pixbuf")]
+    public static partial IntPtr GdkPixbufLoaderGetPixbuf(IntPtr loader);
+
     [LibraryImport(Glib, EntryPoint = "g_strfreev")]
     public static partial void StringArrayFree(IntPtr stringArray);
 

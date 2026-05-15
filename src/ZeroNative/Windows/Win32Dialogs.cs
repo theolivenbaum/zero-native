@@ -7,10 +7,11 @@ using ZeroNative.Platform;
 namespace ZeroNative.Windows;
 
 /// <summary>
-/// Win32 implementations of the standard file/save/message dialogs using the
-/// classic comdlg32 / user32 APIs. (The newer IFileDialog COM API would be
-/// preferable but requires more interop scaffolding; this is sufficient for
-/// the common case and degrades gracefully.)
+/// Legacy comdlg32 / user32 file & message dialog implementations. The default
+/// path now goes through <see cref="Win32ShellDialogs"/> (modern
+/// <c>IFileOpenDialog</c> / <c>IFileSaveDialog</c>); this file is kept as a
+/// fallback when COM instantiation fails and still owns the
+/// <see cref="ShowMessage"/> wrapper around <c>MessageBoxW</c>.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal static class Win32Dialogs

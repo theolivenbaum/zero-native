@@ -21,10 +21,13 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       fallback for older Windows). `GetDpiForWindow` is read on creation
       and `WM_DPICHANGED` is forwarded as a `SurfaceResized` carrying the
       new scale factor.
-- [x] **Open / save / message dialogs.** Implemented in
-      `Win32Dialogs.cs` using `GetOpenFileNameW`/`GetSaveFileNameW`/`MessageBoxW`.
-      Future work: migrate to the COM `IFileOpenDialog`/`IFileSaveDialog`
-      APIs for the modern shell experience.
+- [x] **Open / save / message dialogs.** Default path is now the modern
+      Shell `IFileOpenDialog` / `IFileSaveDialog` COM API (see
+      `Win32ShellDialogs.cs`), which produces the Explorer-style chrome with
+      places sidebar and breadcrumb path bar. `Win32Dialogs.cs` retains the
+      `GetOpenFileNameW`/`GetSaveFileNameW` implementations as a fallback
+      when COM instantiation fails, and still owns the `MessageBoxW`
+      wrapper used by `ShowMessageDialog`.
 - [x] **Tray icon.** `Win32Tray` wraps `Shell_NotifyIconW` (NIM_ADD /
       NIM_DELETE), builds the popup menu via `CreatePopupMenu` +
       `AppendMenuW`, and tracks clicks via a custom `WM_USER + 1` message
@@ -126,9 +129,19 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       request through the shared `AssetServer` and answers with a
       `g_memory_input_stream_new_from_bytes` body via
       `webkit_uri_scheme_request_finish`.
-- [ ] **GTK4 + WebKitGTK 6.0 path.** Modern distros ship GTK4 first; add
-      runtime probing for `libwebkitgtk-6.0` alongside the current
-      `webkit2gtk-4.1` / `4.0` fallback chain.
+- [x] **WebKitGTK 6.0 probing.** `WebKit.WebViewNew` now probes for
+      `libwebkitgtk-6.0.so.4` alongside the existing
+      `libwebkit2gtk-4.1` / `4.0` chain, caches the detected ABI, and
+      dispatches every WebKit P/Invoke (load HTML/URI, user-content
+      manager, scheme handler, navigation policy, evaluate-JS) through
+      the cached ABI. Probe order is 4.1 → 4.0 → 6.0 because the GTK
+      host this platform builds against is GTK3 — the 6.0 entry is a
+      safety net until a real GTK4 host pipeline lands.
+- [ ] **GTK4 host wiring.** WebKitGTK 6.0 binds to GTK4 widgets, so
+      full WebKit 6.0 support also needs a GTK4 P/Invoke surface (window
+      creation, container packing, signal hookup) and a runtime switch
+      that picks the GTK3 vs GTK4 path based on which libraries are
+      available.
 - [x] **Open / save / message dialogs** via `GtkFileChooserDialog` and
       `GtkMessageDialog`. See `GtkDialogs.cs` — file filters, multi-select,
       and primary/secondary/tertiary button mapping are all wired through
@@ -155,11 +168,13 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 ### CEF (CefGlue)
 
-- [ ] **macOS arm64 binary distribution.** CefGlue.Common only publishes
-      `cef.redist.osx64` on NuGet. Provide either a build script that
+- [x] **macOS arm64 binary distribution.** `tools/stage-cef-macos-arm64.sh`
       downloads `cef-builds.spotifycdn.com/cef_binary_*_macosarm64.tar.bz2`
-      and stages it under the user's `runtimes/osx-arm64/native/` directory,
-      or document a manual `CefPlatformOptions.CefDirectory` workflow.
+      and stages the Release + Resources payload under the published
+      app's `runtimes/osx-arm64/native/` directory. Callers can pin a CEF
+      version on the command line; the default matches the CefGlue.Common
+      120.x branch. Apps that publish framework-dependent point at the
+      staged folder via `CefPlatformOptions.CefDirectory`.
 - [x] **Bridge inbound.** `CefRenderHandler` registers a V8 `__zero_native_send`
       function in the renderer process; `CefClientImpl.OnProcessMessageReceived`
       receives the `CefProcessMessage` in the browser process and forwards

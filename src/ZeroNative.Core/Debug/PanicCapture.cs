@@ -77,13 +77,39 @@ public static class PanicCapture
             }
             // ndjson trace line, format identical to TraceSinks.JsonFile.
             var json = "{\"ts\":\"" + DateTimeOffset.UtcNow.ToString("O")
-                + "\",\"level\":\"fatal\",\"name\":\"panic\",\"message\":"
-                + System.Text.Json.JsonSerializer.Serialize(message) + "}\n";
+                + "\",\"level\":\"fatal\",\"name\":\"panic\",\"message\":\""
+                + EscapeJson(message) + "\"}\n";
             File.AppendAllText(trace, json);
         }
         catch
         {
             // Never throw from inside a panic handler.
         }
+    }
+
+    private static string EscapeJson(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        var sb = new System.Text.StringBuilder(value.Length + 8);
+        foreach (var ch in value)
+        {
+            switch (ch)
+            {
+                case '"': sb.Append("\\\""); break;
+                case '\\': sb.Append("\\\\"); break;
+                case '\b': sb.Append("\\b"); break;
+                case '\f': sb.Append("\\f"); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                default:
+                    if (ch < 0x20)
+                        sb.Append("\\u").Append(((int)ch).ToString("x4"));
+                    else
+                        sb.Append(ch);
+                    break;
+            }
+        }
+        return sb.ToString();
     }
 }

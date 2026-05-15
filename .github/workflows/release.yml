@@ -1,9 +1,8 @@
 name: Release
 
+# Workflow disabled: triggers reduced to manual-only (workflow_dispatch).
+# To re-enable automatic release on main, restore the push trigger below.
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}

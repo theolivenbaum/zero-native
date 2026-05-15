@@ -112,11 +112,14 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       `IPlatformServices` interface gained matching `ReadClipboardFiles` /
       `WriteClipboardFiles` / `ReadClipboardImage` / `WriteClipboardImage` hooks,
       wired through on Windows (CF_HDROP + CF_DIB) and Linux (`gtk_clipboard_wait_for_uris`).
-- [ ] **Multi-window WKWebView fan-out.** `CreateWindow` allocates one
-      WKWebView per NSWindow against the shared configuration, but the
-      runtime's `LoadWindowWebView` only updates the right WKWebView
-      when called for an existing window id. Add coverage for
-      `Runtime.CreateWindow` round-trips.
+- [x] **Multi-window WKWebView fan-out.** `CreateWindow` allocates one
+      WKWebView per NSWindow against the shared configuration, and the
+      runtime's `LoadWindowWebView` routes to the matching WKWebView by
+      window id. `NullPlatform` now exposes `WindowSources`,
+      `WindowBridgeResponses`, and `WindowEvents` so the Core tests in
+      `RuntimeTests.Runtime_CreateWindow_LoadsPerWindowSource` (plus
+      bridge-response routing, event emission, and duplicate-id/label
+      rejection) lock down the round-trip.
 
 ### Linux (WebKitGTK)
 
@@ -315,13 +318,13 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       state store), so the package builds cleanly under the AOT analyzer.
       Platform host packages still need their own AOT audit when
       consumers publish AOT-ready apps.
-- [ ] **Velopack installer documentation.** Document how to ship a
-      ZeroNative app as a self-updating installer with
-      [Velopack](https://velopack.io): per-OS packaging
-      (`vpk pack` for Windows MSIX/Setup.exe, macOS `.app`/`.pkg`, Linux
-      AppImage/`.deb`), update feed wiring (`UpdateManager`), and how the
-      generated `Velopack.UpdateExe` interacts with the `ZeroNative.AppBundle`
-      MSBuild target on macOS. Include a worked example under `docs/`.
+- [x] **Velopack installer documentation.** `docs/velopack.md` walks
+      through wiring Velopack into a ZeroNative app: adding the dependency,
+      placing `VelopackApp.Build().Run()` ahead of the runtime, calling
+      `UpdateManager` from a bridge handler, and the per-OS `vpk pack`
+      invocation (including how `--packDir` lines up with
+      `ZeroNative.AppBundle.targets` on macOS). A trimmed-down CI matrix
+      snippet is included at the end.
 - [ ] **Sample app: ZeroNative + Tesserae/H5 + Kestrel endpoints.** Build
       a reference app that pairs the ZeroNative host with
       [Tesserae](https://github.com/curiosity-ai/tesserae)

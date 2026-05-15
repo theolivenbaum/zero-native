@@ -124,4 +124,129 @@ public class RuntimeTests
         runtime.CloseWindow(info.Id);
         Assert.False(runtime.Windows.First(w => w.Id == info.Id).Open);
     }
+
+    [Fact]
+    public void Runtime_CreateWindow_LoadsPerWindowSource()
+    {
+        var platform = new NullPlatform();
+        var runtime = new ZeroNative.Runtime.Runtime(new RuntimeOptions { Platform = platform });
+        var app = new AppBuilder()
+            .Named("multi")
+            .WithSource(WebViewSource.Html("<p>primary</p>"))
+            .Build();
+        runtime.Run(app);
+
+        var secondary = runtime.CreateWindow(new WindowCreateOptions
+        {
+            Label = "tools",
+            Title = "Tools",
+            Source = WebViewSource.Html("<p>tools</p>"),
+        });
+
+        // The primary window kept its source...
+        Assert.Equal("<p>primary</p>", platform.WindowSources[1].Body);
+        // ...and the new window received its own source via LoadWindowWebView.
+        Assert.Equal("<p>tools</p>", platform.WindowSources[secondary.Id].Body);
+        Assert.NotEqual(1ul, secondary.Id);
+    }
+
+    [Fact]
+    public void Runtime_CreateWindow_FallsBackToLoadedSource_WhenSourceOmitted()
+    {
+        var platform = new NullPlatform();
+        var runtime = new ZeroNative.Runtime.Runtime(new RuntimeOptions { Platform = platform });
+        var app = new AppBuilder()
+            .Named("multi")
+            .WithSource(WebViewSource.Html("<p>shared</p>"))
+            .Build();
+        runtime.Run(app);
+
+        var secondary = runtime.CreateWindow(new WindowCreateOptions
+        {
+            Label = "tools",
+            Title = "Tools",
+        });
+
+        Assert.Equal("<p>shared</p>", platform.WindowSources[secondary.Id].Body);
+    }
+
+    [Fact]
+    public void Runtime_BridgeResponse_RoutesToOriginatingWindow()
+    {
+        var registry = new BridgeRegistry().Register(new BridgeHandler(
+            "native.echo",
+            inv => $"{{\"window\":{inv.Source.WindowId}}}"));
+
+        var platform = new NullPlatform();
+        var runtime = new ZeroNative.Runtime.Runtime(new RuntimeOptions
+        {
+            Platform = platform,
+            BridgeDispatcher = new BridgeDispatcher
+            {
+                Policy = new BridgePolicy(
+                    Enabled: true,
+                    Commands: new[] { new BridgeCommandPolicy("native.echo", Origins: new[] { "zero://inline" }) }),
+                Registry = registry,
+            },
+        });
+        runtime.Run(new AppBuilder().Named("multi").WithSource(WebViewSource.Html("<p/>")).Build());
+        var secondary = runtime.CreateWindow(new WindowCreateOptions { Label = "tools", Title = "Tools" });
+
+        runtime.DispatchPlatformEvent(new AppBuilder().Named("bridge").Build(),
+            new PlatformEvent.BridgeReceived(new BridgeMessage(
+                """{"id":"a","command":"native.echo","payload":{}}""",
+                "zero://inline",
+                WindowId: secondary.Id)));
+
+        Assert.True(platform.WindowBridgeResponses.TryGetValue(secondary.Id, out var response));
+        Assert.Contains($"\"window\":{secondary.Id}", response);
+        // The primary window saw no bridge response of its own.
+        Assert.False(platform.WindowBridgeResponses.ContainsKey(1));
+    }
+
+    [Fact]
+    public void Runtime_EmitWindowEvent_RoutesToTargetWindow()
+    {
+        var platform = new NullPlatform();
+        var runtime = new ZeroNative.Runtime.Runtime(new RuntimeOptions { Platform = platform });
+        runtime.Run(new AppBuilder().Named("multi").WithSource(WebViewSource.Html("<p/>")).Build());
+        var secondary = runtime.CreateWindow(new WindowCreateOptions { Label = "tools", Title = "Tools" });
+
+        runtime.EmitWindowEvent(secondary.Id, "zero:tools-ready", """{"ok":true}""");
+        runtime.EmitWindowEvent(1, "zero:primary-tick", "42");
+
+        Assert.Collection(platform.WindowEvents,
+            ev =>
+            {
+                Assert.Equal(secondary.Id, ev.WindowId);
+                Assert.Equal("zero:tools-ready", ev.Name);
+                Assert.Equal("""{"ok":true}""", ev.DetailJson);
+            },
+            ev =>
+            {
+                Assert.Equal(1ul, ev.WindowId);
+                Assert.Equal("zero:primary-tick", ev.Name);
+                Assert.Equal("42", ev.DetailJson);
+            });
+    }
+
+    [Fact]
+    public void Runtime_CreateWindow_RejectsDuplicateIdAndLabel()
+    {
+        var platform = new NullPlatform();
+        var runtime = new ZeroNative.Runtime.Runtime(new RuntimeOptions { Platform = platform });
+        runtime.Run(new AppBuilder().Named("multi").WithSource(WebViewSource.Html("<p/>")).Build());
+
+        var first = runtime.CreateWindow(new WindowCreateOptions { Label = "tools", Title = "Tools" });
+
+        Assert.Throws<DuplicateWindowException>(() => runtime.CreateWindow(new WindowCreateOptions
+        {
+            Id = first.Id,
+            Label = "other",
+        }));
+        Assert.Throws<DuplicateWindowException>(() => runtime.CreateWindow(new WindowCreateOptions
+        {
+            Label = "tools",
+        }));
+    }
 }

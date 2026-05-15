@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "zero-native contributors",
+  "classifications": [ "Desktop", "WebView", "Common" ],
+  "identity": "ZeroNative.App.CSharp",
+  "name": "ZeroNative App",
+  "shortName": "zero-native-app",
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  },
+  "sourceName": "ZeroNativeApp",
+  "preferNameDirectory": true,
+  "symbols": {
+    "BundleId": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "dev.zero_native.app",
+      "replaces": "ZERO_NATIVE_BUNDLE_ID",
+      "description": "Reverse-DNS bundle id used by the app manifest."
+    },
+    "UseCef": {
+      "type": "parameter",
+      "datatype": "bool",
+      "defaultValue": "false",
+      "description": "Reference ZeroNative.Cef instead of the system WebView."
+    }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "condition": "(UseCef)",
+          "exclude": [ "ZeroNativeApp.csproj" ],
+          "rename": { "ZeroNativeApp.Cef.csproj": "ZeroNativeApp.csproj" }
+        },
+        {
+          "condition": "(!UseCef)",
+          "exclude": [ "ZeroNativeApp.Cef.csproj" ]
+        }
+      ]
+    }
+  ]
+}

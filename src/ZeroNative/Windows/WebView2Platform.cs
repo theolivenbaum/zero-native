@@ -276,6 +276,10 @@ internal sealed class WebView2Platform : IPlatform, IPlatformServices
 
     string IPlatformServices.ReadClipboard() => Win32Clipboard.ReadText();
     void IPlatformServices.WriteClipboard(string text) => Win32Clipboard.WriteText(text);
+    IReadOnlyList<string> IPlatformServices.ReadClipboardFiles() => Win32Clipboard.ReadFiles();
+    void IPlatformServices.WriteClipboardFiles(IReadOnlyList<string> paths) => Win32Clipboard.WriteFiles(paths);
+    byte[] IPlatformServices.ReadClipboardImage() => Win32Clipboard.ReadImage();
+    void IPlatformServices.WriteClipboardImage(ReadOnlySpan<byte> bytes) => Win32Clipboard.WriteImage(bytes);
 
     void IPlatformServices.ConfigureSecurityPolicy(SecurityPolicy policy) => _policy = policy;
 

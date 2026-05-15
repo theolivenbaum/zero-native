@@ -440,4 +440,37 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
         Gtk.ClipboardSetText(clipboard, text, -1);
         Gtk.ClipboardStore(clipboard);
     }
+
+    IReadOnlyList<string> IPlatformServices.ReadClipboardFiles()
+    {
+        var atom = Gtk.AtomIntern("CLIPBOARD", false);
+        var clipboard = Gtk.ClipboardGet(atom);
+        if (clipboard == IntPtr.Zero) return Array.Empty<string>();
+        var arr = Gtk.ClipboardWaitForUris(clipboard);
+        if (arr == IntPtr.Zero) return Array.Empty<string>();
+        try
+        {
+            var paths = new List<string>();
+            unsafe
+            {
+                var p = (IntPtr*)arr;
+                while (*p != IntPtr.Zero)
+                {
+                    var uri = Marshal.PtrToStringUTF8(*p) ?? "";
+                    if (uri.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try { paths.Add(Uri.UnescapeDataString(new Uri(uri).LocalPath)); }
+                        catch { paths.Add(uri); }
+                    }
+                    else if (uri.Length > 0)
+                    {
+                        paths.Add(uri);
+                    }
+                    p++;
+                }
+            }
+            return paths;
+        }
+        finally { Gtk.StringArrayFree(arr); }
+    }
 }

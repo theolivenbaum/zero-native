@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageType>Template</PackageType>
+    <PackageId>ZeroNative.Templates</PackageId>
+    <Title>ZeroNative project templates</Title>
+    <Description>`dotnet new zero-native-app` template that scaffolds a minimal ZeroNative .NET app with a sensible Program.cs, app.json manifest, and starter HTML.</Description>
+    <PackageTags>dotnet-new;templates;zero-native;desktop;webview</PackageTags>
+
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+
+    <!-- Templates don't ship MSBuild output, so we don't need source link / symbol pkgs. -->
+    <PublishRepositoryUrl>false</PublishRepositoryUrl>
+    <EmbedUntrackedSources>false</EmbedUntrackedSources>
+    <IncludeSymbols>false</IncludeSymbols>
+
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- The template package has no compiled output and no real source code, so
+         disable Source Link to avoid the "no source control information" warning. -->
+    <SourceLinkOriginUrl></SourceLinkOriginUrl>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="content\**\*"
+             Exclude="content\**\bin\**;content\**\obj\**" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- This is a template-only NuGet, no project compilation. -->
+  <ItemGroup>
+    <Compile Remove="**\*.cs" />
+  </ItemGroup>
+
+</Project>

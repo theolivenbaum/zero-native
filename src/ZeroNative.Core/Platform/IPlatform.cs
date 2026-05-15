@@ -53,6 +53,18 @@ public interface IPlatformServices
     string ReadClipboard() => throw new UnsupportedServiceException();
     void WriteClipboard(string text) => throw new UnsupportedServiceException();
 
+    /// <summary>Reads file URLs from the system pasteboard (e.g. a Finder/Explorer drag).</summary>
+    IReadOnlyList<string> ReadClipboardFiles() => throw new UnsupportedServiceException();
+
+    /// <summary>Writes one or more file URLs to the system pasteboard.</summary>
+    void WriteClipboardFiles(IReadOnlyList<string> paths) => throw new UnsupportedServiceException();
+
+    /// <summary>Reads raw image bytes (PNG-encoded when possible) from the system pasteboard.</summary>
+    byte[] ReadClipboardImage() => throw new UnsupportedServiceException();
+
+    /// <summary>Writes raw image bytes to the system pasteboard. The data should be a complete image (PNG, TIFF, etc).</summary>
+    void WriteClipboardImage(ReadOnlySpan<byte> bytes) => throw new UnsupportedServiceException();
+
     void LoadWebView(WebViewSource source) => LoadWindowWebView(1, source);
 
     void LoadWindowWebView(ulong windowId, WebViewSource source)

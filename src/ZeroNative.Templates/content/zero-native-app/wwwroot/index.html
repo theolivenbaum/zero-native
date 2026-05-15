@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ZeroNativeApp</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; padding: 2rem; max-width: 720px; margin: 0 auto; }
+    button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; }
+    pre { background: #f4f4f5; padding: 1rem; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>ZeroNativeApp</h1>
+  <p>A starter ZeroNative project. Edit <code>wwwroot/index.html</code> and rebuild.</p>
+  <button id="ping">Ping native</button>
+  <pre id="out"></pre>
+  <script>
+    document.getElementById('ping').addEventListener('click', async () => {
+      const r = await window.zero.invoke('native.ping', { from: 'browser' });
+      document.getElementById('out').textContent = JSON.stringify(r, null, 2);
+    });
+  </script>
+</body>
+</html>

@@ -60,26 +60,57 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 ### macOS (WKWebView)
 
-- [x] **Bridge inbound channel.** A `WKUserContentController` injects the
-      `BridgeJavascript` shim at document start and the platform registers
-      the script-message handler name. Wiring the actual ObjC handler
-      object (so messages from JS reach managed code) is still required.
-- [ ] **Native event loop wiring.** The current `[NSApp run]` call blocks
-      forever — there's no `applicationWillTerminate` plumbing back to
-      the runtime. Subclass `NSApplicationDelegate` to forward `terminate:`
-      and dock-quit signals as `app_shutdown` events.
-- [ ] **Window delegate.** Forward `windowDidResize`, `windowDidMove`,
-      `windowDidBecomeKey`, `windowWillClose` to the runtime.
-- [ ] **Open / save / message dialogs.** `NSOpenPanel`, `NSSavePanel`,
+- [x] **Bridge inbound channel.** A custom `ZeroNativeScriptHandler`
+      class (registered via `objc_allocateClassPair` + `class_addMethod`)
+      conforms to `WKScriptMessageHandler` and forwards
+      `userContentController:didReceiveScriptMessage:` payloads back to
+      the runtime, resolving the originating WKWebView so multi-window
+      bridge responses route to the right window.
+- [x] **Native event loop wiring.** A `ZeroNativeAppDelegate` is
+      registered as the `NSApplication` delegate. It implements
+      `applicationWillTerminate:` (publishes `AppShutdown`) and
+      `applicationShouldTerminateAfterLastWindowClosed:` (returns YES so
+      cmd-Q / dock-close ends the runloop cleanly).
+- [x] **Window delegate.** `ZeroNativeWindowDelegate` forwards
+      `windowDidResize:` / `windowDidMove:` (re-reading the NSWindow
+      `frame` and `backingScaleFactor`), `windowDidBecomeKey:`
+      (emitting `WindowFocused`), and `windowWillClose:` (emitting
+      `WindowFrameChanged` with `Open=false` and terminating the app
+      when the primary or last window closes).
+- [x] **Open / save / message dialogs.** `NSOpenPanel`, `NSSavePanel`,
       `NSAlert` wrappers behind the `IPlatformServices` API.
-- [ ] **Tray icon.** `NSStatusBar` + `NSStatusItem` + `NSMenu` integration.
-- [ ] **Custom URL scheme.** Implement a `WKURLSchemeHandler` for
-      `WebViewSource.Assets` so the configured origin maps to disk.
-- [ ] **Bundle / Info.plist generation.** Provide a packing target that
-      assembles `.app` bundles with the right `Info.plist`,
-      `CFBundleIdentifier`, icons, and entitlements.
-- [ ] **Universal binaries.** Wire `RuntimeIdentifiers` for `osx-x64;osx-arm64`
-      in the samples and document `lipo`-style packaging.
+      `allowedFileTypes:` carries the configured filter extensions and
+      primary/secondary/tertiary buttons map to
+      `NSAlertFirstButtonReturn` / `…SecondButtonReturn` / `…ThirdButtonReturn`.
+- [x] **Tray icon.** `NSStatusBar` + `NSStatusItem` + `NSMenu` with a
+      generated `ZeroNativeTrayTarget` target class. Menu activations
+      dispatch through `invoke:` to `PlatformEvent.TrayAction`.
+- [x] **Custom URL scheme.** `ZeroNativeUrlSchemeHandler` conforms to
+      `WKURLSchemeHandler`. `webView:startURLSchemeTask:` resolves the
+      request through the shared `AssetServer`, builds an
+      `NSHTTPURLResponse` with the right status / content-type, and
+      streams the body back via `didReceiveResponse:` / `didReceiveData:`
+      / `didFinish`.
+- [x] **Bundle / Info.plist generation.** `ZeroNative.AppBundle.targets`
+      ships in the NuGet `build/` directory and is auto-imported by
+      consumers. Setting `<ZeroNativeBundleApp>true</ZeroNativeBundleApp>`
+      (plus `<ZeroNativeBundleId>…</ZeroNativeBundleId>`) assembles
+      `$(OutputPath)$(BundleName).app/Contents/{MacOS,Resources}` with a
+      generated `Info.plist`. Codesigning / notarization remains an
+      out-of-band step.
+- [x] **Universal binaries.** The sample now declares
+      `<RuntimeIdentifiers>` for `win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64`,
+      so `dotnet publish -r osx-arm64` (or `-r osx-x64`) produces the
+      native-AOT-friendly per-RID outputs. Combine the two outputs via
+      `lipo -create -output ...` from a CI matrix to ship a fat binary.
+- [ ] **Clipboard via writable types.** `NSPasteboard.generalPasteboard`
+      reads/writes `public.utf8-plain-text` — file URL / image
+      pasteboard types are still TODO.
+- [ ] **Multi-window WKWebView fan-out.** `CreateWindow` allocates one
+      WKWebView per NSWindow against the shared configuration, but the
+      runtime's `LoadWindowWebView` only updates the right WKWebView
+      when called for an existing window id. Add coverage for
+      `Runtime.CreateWindow` round-trips.
 
 ### Linux (WebKitGTK)
 

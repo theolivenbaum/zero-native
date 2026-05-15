@@ -140,11 +140,19 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       the cached ABI. Probe order is 4.1 → 4.0 → 6.0 because the GTK
       host this platform builds against is GTK3 — the 6.0 entry is a
       safety net until a real GTK4 host pipeline lands.
-- [ ] **GTK4 host wiring.** WebKitGTK 6.0 binds to GTK4 widgets, so
-      full WebKit 6.0 support also needs a GTK4 P/Invoke surface (window
-      creation, container packing, signal hookup) and a runtime switch
-      that picks the GTK3 vs GTK4 path based on which libraries are
-      available.
+- [x] **GTK4 host wiring (core path).** `Gtk` now carries a `GtkAbi`
+      switch with a full GTK4 P/Invoke surface alongside the GTK3 one
+      (`gtk_init`, `gtk_window_new`, `gtk_window_set_child`,
+      `gtk_window_present`, `gtk_window_destroy`, `gtk_widget_get_width`/
+      `_height`, `gtk_widget_get_scale_factor`). The main loop runs
+      against a `GMainLoop` on GTK4, the destroy callback returns
+      gboolean to satisfy `close-request`, and `WebKitGtkPlatform`
+      probes WebKit via `NativeLibrary.TryLoad` and pairs the GTK ABI
+      before any widget is created. GTK4 paths that lack a clean GTK4
+      equivalent — `GtkClipboard`, `GtkFileChooserDialog`, the
+      `configure-event`/`focus-in-event` signals — surface
+      `UnsupportedServiceException` until the `GdkClipboard` /
+      `GtkFileDialog` / `notify::default-width` wiring lands.
 - [x] **Open / save / message dialogs** via `GtkFileChooserDialog` and
       `GtkMessageDialog`. See `GtkDialogs.cs` — file filters, multi-select,
       and primary/secondary/tertiary button mapping are all wired through

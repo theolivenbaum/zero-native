@@ -9,8 +9,12 @@ using ZeroNative.Security;
 namespace ZeroNative.Linux;
 
 /// <summary>
-/// Linux host using GTK3 + WebKit2GTK via P/Invoke.
-/// Requires libgtk-3 and libwebkit2gtk-4.1 (or 4.0) at runtime.
+/// Linux host using GTK + WebKit via P/Invoke. The runtime picks
+/// GTK3 + WebKit2GTK 4.0/4.1 on legacy systems and GTK4 + WebKitGTK 6.0
+/// when the modern stack is the only thing installed; the pairing is
+/// resolved once at startup (see <see cref="WebKit.Probe"/> +
+/// <see cref="Gtk.PairWithWebKit"/>) and every Gtk/WebKit call dispatches
+/// through the detected ABI thereafter.
 /// </summary>
 [SupportedOSPlatform("linux")]
 internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
@@ -33,13 +37,17 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
     private AyatanaIndicator? _tray;
 
     // Named delegates: Marshal.GetFunctionPointerForDelegate rejects generic Action/Func.
-    private delegate void SignalVoidCallback(IntPtr instance, IntPtr userData);
+    //
+    // The destroy hook returns int even though GTK3's "destroy" signal is void —
+    // GTK4 reuses the same slot for "close-request" (gboolean: FALSE = allow close).
+    // Always returning 0 makes both ABIs happy.
+    private delegate int DestroyCallback(IntPtr instance, IntPtr userData);
     private delegate void ScriptMessageCallback(IntPtr ucm, IntPtr jsResult, IntPtr userData);
     private delegate void SchemeRequestCallback(IntPtr request, IntPtr userData);
     private delegate int SignalEventCallback(IntPtr widget, IntPtr eventPtr, IntPtr userData);
     private delegate int DecidePolicyCallback(IntPtr webview, IntPtr decision, int decisionType, IntPtr userData);
 
-    private static readonly SignalVoidCallback _destroyCallback = OnDestroyStatic;
+    private static readonly DestroyCallback _destroyCallback = OnDestroyStatic;
     // Keep the delegates alive in fields so the GC doesn't reclaim them while GTK holds the function pointer.
     private readonly ScriptMessageCallback _scriptMessageCallback;
     private readonly SchemeRequestCallback _schemeRequestCallback;
@@ -87,6 +95,11 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
 
     private void InitializeGtk()
     {
+        // Probe the WebKit ABI before touching GTK so we can ask GTK to load
+        // the matching major version. WebKitGTK 6.0 is GTK4-bound; 4.x is GTK3.
+        var webkitAbi = WebKit.Probe();
+        Gtk.PairWithWebKit(webkitAbi);
+
         var argc = 0;
         Gtk.Init(ref argc, IntPtr.Zero);
 
@@ -100,7 +113,7 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
             Gtk.WindowMove(_window, (int)window.DefaultFrame.X, (int)window.DefaultFrame.Y);
 
         _webView = WebKit.WebViewNew();
-        Gtk.ContainerAdd(_window, _webView);
+        Gtk.WindowSetChild(_window, _webView);
         _windows[window.Id] = _window;
         _windowIds[_window] = window.Id;
 
@@ -122,15 +135,28 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
 
         Gtk.WidgetShowAll(_window);
 
-        // Connect destroy → main_quit. Keep the delegate alive via the static field.
+        // Wire up "user closed the window" → quit the main loop. The signal name
+        // differs between GTK3 (the widget-level "destroy") and GTK4 ("close-request"
+        // on the GtkWindow). Connecting both is harmless on either ABI — only the
+        // matching one fires; g_signal_connect_data tolerates the mismatch.
         var destroyCb = Marshal.GetFunctionPointerForDelegate(_destroyCallback);
-        Gtk.SignalConnectData(_window, "destroy", destroyCb, IntPtr.Zero, IntPtr.Zero, 0);
+        Gtk.SignalConnectData(_window,
+            Gtk.IsGtk4 ? "close-request" : "destroy",
+            destroyCb, IntPtr.Zero, IntPtr.Zero, 0);
 
-        // Forward configure-event (moves+resizes) and focus-in-event to the runtime.
-        var configureCb = Marshal.GetFunctionPointerForDelegate(_configureCallback);
-        Gtk.SignalConnectData(_window, "configure-event", configureCb, IntPtr.Zero, IntPtr.Zero, 0);
-        var focusInCb = Marshal.GetFunctionPointerForDelegate(_focusInCallback);
-        Gtk.SignalConnectData(_window, "focus-in-event", focusInCb, IntPtr.Zero, IntPtr.Zero, 0);
+        if (!Gtk.IsGtk4)
+        {
+            // GTK3 supports configure-event / focus-in-event directly on the window.
+            // GTK4 removed both — geometry has to come from notify::default-width /
+            // notify::default-height / notify::is-active and a separate gesture
+            // controller for focus. That wiring stays TODO; the GTK4 path still
+            // brings the window up and serves the asset stream, just without live
+            // resize/focus traces.
+            var configureCb = Marshal.GetFunctionPointerForDelegate(_configureCallback);
+            Gtk.SignalConnectData(_window, "configure-event", configureCb, IntPtr.Zero, IntPtr.Zero, 0);
+            var focusInCb = Marshal.GetFunctionPointerForDelegate(_focusInCallback);
+            Gtk.SignalConnectData(_window, "focus-in-event", focusInCb, IntPtr.Zero, IntPtr.Zero, 0);
+        }
     }
 
     private int OnConfigureEvent(IntPtr widget, IntPtr eventPtr, IntPtr userData)
@@ -239,7 +265,11 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
         catch { /* best effort */ }
     }
 
-    private static void OnDestroyStatic(IntPtr widget, IntPtr data) => Gtk.MainQuit();
+    private static int OnDestroyStatic(IntPtr widget, IntPtr data)
+    {
+        Gtk.MainQuit();
+        return 0; // GTK4 close-request: FALSE means "allow the window to close".
+    }
 
     private void OnScriptMessage(IntPtr ucm, IntPtr jsResult, IntPtr userData)
     {
@@ -390,13 +420,25 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
     }
 
     OpenDialogResult IPlatformServices.ShowOpenDialog(OpenDialogOptions options)
-        => GtkDialogs.ShowOpen(_window, options);
+    {
+        // GtkDialogs depends on the GTK3 gtk_file_chooser_dialog_new / gtk_dialog_run
+        // surface. GTK4 replaced that with the async GtkFileDialog API which we
+        // haven't ported yet, so degrade rather than P/Invoke into a missing symbol.
+        if (Gtk.IsGtk4) throw new UnsupportedServiceException("File dialogs require the GTK3 path; GTK4 GtkFileDialog support is not yet wired");
+        return GtkDialogs.ShowOpen(_window, options);
+    }
 
     string? IPlatformServices.ShowSaveDialog(SaveDialogOptions options)
-        => GtkDialogs.ShowSave(_window, options);
+    {
+        if (Gtk.IsGtk4) throw new UnsupportedServiceException("File dialogs require the GTK3 path; GTK4 GtkFileDialog support is not yet wired");
+        return GtkDialogs.ShowSave(_window, options);
+    }
 
     MessageDialogResult IPlatformServices.ShowMessageDialog(MessageDialogOptions options)
-        => GtkDialogs.ShowMessage(_window, options);
+    {
+        if (Gtk.IsGtk4) throw new UnsupportedServiceException("Message dialogs require the GTK3 path; GTK4 GtkAlertDialog support is not yet wired");
+        return GtkDialogs.ShowMessage(_window, options);
+    }
 
     void IPlatformServices.CreateTray(TrayOptions options)
     {
@@ -423,6 +465,11 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
 
     string IPlatformServices.ReadClipboard()
     {
+        // The GTK3 GtkClipboard API was removed in GTK4 in favour of
+        // gdk_display_get_clipboard / GdkContentProvider, which we haven't
+        // bound yet. Surface a clear "unsupported" signal on GTK4 instead of
+        // P/Invoking into an unloaded libgtk-3.
+        if (Gtk.IsGtk4) throw new UnsupportedServiceException("Clipboard access on GTK4 requires the GdkClipboard binding (not yet ported)");
         var atom = Gtk.AtomIntern("CLIPBOARD", false);
         var clipboard = Gtk.ClipboardGet(atom);
         if (clipboard == IntPtr.Zero) return "";
@@ -434,6 +481,7 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
 
     void IPlatformServices.WriteClipboard(string text)
     {
+        if (Gtk.IsGtk4) throw new UnsupportedServiceException("Clipboard access on GTK4 requires the GdkClipboard binding (not yet ported)");
         var atom = Gtk.AtomIntern("CLIPBOARD", false);
         var clipboard = Gtk.ClipboardGet(atom);
         if (clipboard == IntPtr.Zero) return;
@@ -443,6 +491,7 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
 
     IReadOnlyList<string> IPlatformServices.ReadClipboardFiles()
     {
+        if (Gtk.IsGtk4) throw new UnsupportedServiceException("Clipboard access on GTK4 requires the GdkClipboard binding (not yet ported)");
         var atom = Gtk.AtomIntern("CLIPBOARD", false);
         var clipboard = Gtk.ClipboardGet(atom);
         if (clipboard == IntPtr.Zero) return Array.Empty<string>();

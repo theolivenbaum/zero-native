@@ -294,9 +294,14 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 - [x] `ModuleRegistry` tests covering start/stop ordering, targeted
       dispatch, duplicate-id and missing-dependency rejection, and
       exception wrapping into `ModuleFailedException`.
-- [ ] Smoke-test each platform backend on its target OS (CI matrix:
-      `windows-latest`, `macos-latest`, `ubuntu-latest`, plus arm64
-      runners once available).
+- [x] Smoke-test each platform backend on its target OS (CI matrix:
+      `windows-latest`, `macos-latest`, `ubuntu-latest`). The
+      `.github/workflows/dotnet.yml` build-test matrix now also publishes
+      `samples/ZeroNative.Sample` for the matrix RID (`win-x64`,
+      `osx-arm64`, `linux-x64`) on each OS, so the per-RID native
+      bindings (WebView2 references, macOS bundle target, WebKitGTK
+      P/Invokes) are exercised end-to-end. arm64 Linux/Windows runners
+      remain a roadmap item once GitHub-hosted runners land.
 - [x] Snapshot tests for `Runtime` lifecycle traces (capture
       `TraceRecord` sequence and diff against golden files). Locked
       down the canonical order in
@@ -328,13 +333,18 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 ## Documentation
 
-- [ ] Port the docs site under `.reference/docs/` (Next.js MDX) to point
-      at the C# API surface, or replace with DocFX / .NET docs.
-- [ ] **Build the docs site with Neko.** Use the
+- [x] Port the docs site under `.reference/docs/` (Next.js MDX) to point
+      at the C# API surface. Replaced with a Markdown-only Neko site under
+      `docs/`. The .NET-rewritten pages cover the introduction, getting
+      started, quick start, frontend integration, packaging (with the
+      existing Velopack walkthrough), app model, bridge, windows,
+      security, dialogs / tray, web engines, automation, extensions,
+      debugging, and the `app.json` manifest schema.
+- [x] **Build the docs site with Neko.** `docs/neko.yml` configures the
       [Neko](https://github.com/theolivenbaum/neko) static-site generator
-      (Markdown + components, Razor/H5 friendly) to publish the API and
-      guide pages. Author content under `docs/`, drive Neko from the
-      `pack` CI job, and publish to GitHub Pages.
+      against `docs/`, and `.github/workflows/dotnet.yml` adds a `docs`
+      job that installs Neko as a `dotnet tool`, runs `neko build`, and
+      uploads `docs/.neko` as a workflow artifact ready for GitHub Pages.
 - [x] Per-package READMEs that get embedded in the NuGet.
 - [x] Architecture diagram showing `Core` ↔ platform backends ↔ host apps
       (`README.md` "Architecture" section).
@@ -371,3 +381,35 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       command, poll the server until it answers a 2xx/3xx response, and
       return a handle that owns the child process. Apps point their
       `WebViewSource.Url(...)` at the resolved URL during development.
+
+## Known follow-ups
+
+These aren't tracked as port-parity gaps (every `[x]` item above is
+complete), but they're partial-coverage edges callers can hit. Each is
+documented at the throw site with the `UnsupportedServiceException` message
+so consumers know to expect them.
+
+- **Linux file-clipboard writes** (`IPlatformServices.WriteClipboardFiles`).
+  Read is wired on GTK3 via `gtk_clipboard_wait_for_uris`; write would
+  require a target-providing source. macOS and Windows write file lists
+  today.
+- **Linux image clipboard** (`ReadClipboardImage` / `WriteClipboardImage`).
+  Both raise `UnsupportedServiceException` on Linux. Adding them needs the
+  `gtk_clipboard_set_image` / `gdk_pixbuf_loader_*` plumbing. macOS and
+  Windows wire `public.png` / `CF_DIB` respectively.
+- **GTK4 file-clipboard reads.** GTK3 uses
+  `gtk_clipboard_wait_for_uris`; the GTK4 binding for content-provider
+  file lists is not yet ported, so `ReadClipboardFiles` throws on GTK4.
+  Text read/write works on both ABIs.
+- **CEF `SetWindowFrame`.** CEF doesn't expose programmatic geometry the
+  way WebView2 / WKWebView / GtkWindow do, so the CEF host raises
+  `UnsupportedServiceException`. The runtime swallows the exception, so
+  callers fall back to the initial frame.
+- **CefGlue macOS arm64.** `CefGlue.Common 120.x` does not ship a
+  `cef.redist.osxarm64` payload. Use `tools/stage-cef-macos-arm64.sh` and
+  point `CefPlatformOptions.CefDirectory` at the staged folder until
+  CefGlue publishes an arm64 macOS variant.
+- **CI arm64 runners.** The build matrix uses GitHub-hosted x64 runners
+  for Linux/Windows and `osx-arm64` on macOS. Add `linux-arm64` /
+  `windows-arm64` jobs when matching GitHub-hosted runners are
+  generally available.

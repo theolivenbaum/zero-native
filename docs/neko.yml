@@ -1,0 +1,92 @@
+input: ./
+output: .neko
+url: zero-native.curiosity.ai
+
+branding:
+  title: zero-native (.NET)
+  repository: https://github.com/theolivenbaum/zero-native
+
+theme:
+  name: curiosity
+
+meta:
+  description: .NET 10 / C# port of zero-native. Build native desktop apps with a system WebView or CEF and a small C# runtime.
+  keywords: zero-native, dotnet, csharp, desktop, webview, webview2, wkwebview, webkitgtk, cef
+  author: zero-native contributors
+  type: website
+
+links:
+  - text: Home
+    link: /
+    icon: house-chimney
+  - text: Guides
+    items:
+      - text: Getting Started
+        link: /guides/getting-started
+        description: Install the SDK and scaffold a project
+        icon: rocket
+      - text: Quick Start
+        link: /guides/quick-start
+        description: From zero to running in five minutes
+        icon: bolt
+      - text: Frontend Projects
+        link: /guides/frontend
+        description: React / Vue / Svelte / Vite with hot reload
+        icon: code
+      - text: Packaging
+        link: /guides/packaging
+        description: dotnet publish, .app bundles, Velopack
+        icon: box
+      - text: Velopack Packaging
+        link: /guides/velopack
+        description: Installers and in-app updates with Velopack
+        icon: box-archive
+  - text: Reference
+    items:
+      - text: App Model
+        link: /reference/app-model
+        description: AppInfo, Runtime, AppBuilder, lifecycle hooks
+        icon: cube
+      - text: Bridge
+        link: /reference/bridge
+        description: JS to .NET messages, handlers, policy
+        icon: bolt
+      - text: Windows
+        link: /reference/windows
+        description: Multi-window APIs and state persistence
+        icon: window-maximize
+      - text: Security
+        link: /reference/security
+        description: Permissions, origins, navigation, CSP
+        icon: shield
+      - text: Dialogs and Tray
+        link: /reference/dialogs
+        description: Open / save / message dialogs and system tray
+        icon: folder-open
+      - text: Web Engines
+        link: /reference/web-engines
+        description: System WebView vs CEF
+        icon: globe
+      - text: Automation
+        link: /reference/automation
+        description: File-based test harness
+        icon: robot
+      - text: Extensions
+        link: /reference/extensions
+        description: ModuleRegistry and lifecycle hooks
+        icon: puzzle-piece
+      - text: Debugging
+        link: /reference/debugging
+        description: Trace sinks and lifecycle snapshots
+        icon: bug
+      - text: App Manifest
+        link: /reference/manifest
+        description: app.json schema
+        icon: file-lines
+      - text: Embedded App
+        link: /reference/embed
+        description: Drive Runtime from a host event loop
+        icon: layer-group
+  - text: GitHub
+    link: https://github.com/theolivenbaum/zero-native
+    icon: brands-github

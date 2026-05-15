@@ -1,3 +1,10 @@
+---
+order: 5
+title: Velopack Packaging
+icon: box-archive
+tags: [guide]
+---
+
 # Shipping a ZeroNative app with Velopack
 
 [Velopack](https://velopack.io) is a cross-platform installer + auto-updater

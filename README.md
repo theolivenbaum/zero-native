@@ -126,6 +126,22 @@ dotnet new install ZeroNative.Templates
 dotnet new zero-native-app -n MyApp --BundleId dev.example.myapp
 ```
 
+## Documentation
+
+A Markdown documentation site lives under [`docs/`](./docs/) and renders with
+[Neko](https://github.com/theolivenbaum/neko):
+
+```bash
+dotnet tool install --global Neko
+cd docs && neko build -o .neko
+```
+
+The `.github/workflows/dotnet.yml` `docs` job runs the same `neko build` and
+uploads the static output as a workflow artifact ready for GitHub Pages.
+
+The original Next.js MDX site is preserved in `.reference/docs/` as the source
+of truth for the Zig API surface.
+
 ## Status
 
 Initial port. Core abstractions (runtime, bridge, security, manifest) are complete and unit-tested. Platform backends are wired to the appropriate native APIs (WebView2 / WKWebView / WebKitGTK / CefGlue). Multi-window, dialogs, tray, clipboard (text/file/image), navigation policy, asset serving, and the automation harness are all in place — see `TODO.md` for the remaining work list.

@@ -166,12 +166,14 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       and `notify::is-active` (gated by `gtk_window_is_active`) drives
       `WindowFocused`. Position is reported as (0,0) on GTK4 because the
       WM owns toplevel placement.
-- [ ] **GTK4 file/alert dialogs.** `GtkFileDialog` / `GtkAlertDialog`
-      replace the GTK3 `GtkFileChooserDialog` / `GtkMessageDialog`. Wiring
-      requires the same async-via-`g_main_context_iteration` pattern used
-      by the GTK4 clipboard read. Until then `ShowOpenDialog` /
-      `ShowSaveDialog` / `ShowMessageDialog` raise
-      `UnsupportedServiceException` on the GTK4 path.
+- [x] **GTK4 file/alert dialogs.** `GtkFileDialog` / `GtkAlertDialog` are
+      bound under `Gtk4Dialogs.cs`. `ShowOpen` /  `ShowSave` /
+      `ShowMessage` (folder-picker via `gtk_file_dialog_select_folder`
+      when `AllowDirectories=true`) all drive the async API through
+      `g_main_context_iteration` until the `GAsyncReadyCallback` fires,
+      then unwrap the result via the matching `*_finish` getter. Filters
+      pack into a `GListStore` of `GtkFileFilter`; alert buttons are
+      packed into a NULL-terminated `char**`.
 - [x] **Open / save / message dialogs** via `GtkFileChooserDialog` and
       `GtkMessageDialog`. See `GtkDialogs.cs` — file filters, multi-select,
       and primary/secondary/tertiary button mapping are all wired through

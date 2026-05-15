@@ -462,25 +462,13 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
     }
 
     OpenDialogResult IPlatformServices.ShowOpenDialog(OpenDialogOptions options)
-    {
-        // GtkDialogs depends on the GTK3 gtk_file_chooser_dialog_new / gtk_dialog_run
-        // surface. GTK4 replaced that with the async GtkFileDialog API which we
-        // haven't ported yet, so degrade rather than P/Invoke into a missing symbol.
-        if (Gtk.IsGtk4) throw new UnsupportedServiceException("File dialogs require the GTK3 path; GTK4 GtkFileDialog support is not yet wired");
-        return GtkDialogs.ShowOpen(_window, options);
-    }
+        => Gtk.IsGtk4 ? Gtk4Dialogs.ShowOpen(_window, options) : GtkDialogs.ShowOpen(_window, options);
 
     string? IPlatformServices.ShowSaveDialog(SaveDialogOptions options)
-    {
-        if (Gtk.IsGtk4) throw new UnsupportedServiceException("File dialogs require the GTK3 path; GTK4 GtkFileDialog support is not yet wired");
-        return GtkDialogs.ShowSave(_window, options);
-    }
+        => Gtk.IsGtk4 ? Gtk4Dialogs.ShowSave(_window, options) : GtkDialogs.ShowSave(_window, options);
 
     MessageDialogResult IPlatformServices.ShowMessageDialog(MessageDialogOptions options)
-    {
-        if (Gtk.IsGtk4) throw new UnsupportedServiceException("Message dialogs require the GTK3 path; GTK4 GtkAlertDialog support is not yet wired");
-        return GtkDialogs.ShowMessage(_window, options);
-    }
+        => Gtk.IsGtk4 ? Gtk4Dialogs.ShowMessage(_window, options) : GtkDialogs.ShowMessage(_window, options);
 
     void IPlatformServices.CreateTray(TrayOptions options)
     {

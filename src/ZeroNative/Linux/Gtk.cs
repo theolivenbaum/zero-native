@@ -511,6 +511,102 @@ internal static partial class Gtk
 
     [LibraryImport(Glib, EntryPoint = "g_slist_free")]
     public static partial void SListFree(IntPtr list);
+
+    // ---- GTK4 file / alert dialogs (async APIs) ----
+    //
+    // GTK4 replaced GtkFileChooserDialog with GtkFileDialog and GtkMessageDialog
+    // with GtkAlertDialog. Both expose only async entry points; the platform
+    // drives them via g_main_context_iteration in the same pattern as the GTK4
+    // clipboard read.
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_new")]
+    public static partial IntPtr Gtk4FileDialogNew();
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_set_title", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gtk4FileDialogSetTitle(IntPtr dialog, string title);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_set_initial_folder")]
+    public static partial void Gtk4FileDialogSetInitialFolder(IntPtr dialog, IntPtr folder);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_set_initial_name", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gtk4FileDialogSetInitialName(IntPtr dialog, string name);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_set_filters")]
+    public static partial void Gtk4FileDialogSetFilters(IntPtr dialog, IntPtr filters);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_open")]
+    public static partial void Gtk4FileDialogOpen(IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_open_multiple")]
+    public static partial void Gtk4FileDialogOpenMultiple(IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_save")]
+    public static partial void Gtk4FileDialogSave(IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_select_folder")]
+    public static partial void Gtk4FileDialogSelectFolder(IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_open_finish")]
+    public static partial IntPtr Gtk4FileDialogOpenFinish(IntPtr dialog, IntPtr result, IntPtr error);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_open_multiple_finish")]
+    public static partial IntPtr Gtk4FileDialogOpenMultipleFinish(IntPtr dialog, IntPtr result, IntPtr error);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_save_finish")]
+    public static partial IntPtr Gtk4FileDialogSaveFinish(IntPtr dialog, IntPtr result, IntPtr error);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_dialog_select_folder_finish")]
+    public static partial IntPtr Gtk4FileDialogSelectFolderFinish(IntPtr dialog, IntPtr result, IntPtr error);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_filter_new")]
+    public static partial IntPtr Gtk4FileFilterNew();
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_filter_set_name", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gtk4FileFilterSetName(IntPtr filter, string name);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_filter_add_pattern", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gtk4FileFilterAddPattern(IntPtr filter, string pattern);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_file_filter_get_type")]
+    public static partial IntPtr Gtk4FileFilterGetType();
+
+    // GIO helpers used by GtkFileDialog (GFile / GListStore / GListModel).
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_list_store_new")]
+    public static partial IntPtr GListStoreNew(IntPtr itemType);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_list_store_append")]
+    public static partial void GListStoreAppend(IntPtr store, IntPtr item);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_list_model_get_n_items")]
+    public static partial uint GListModelGetNItems(IntPtr model);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_list_model_get_item")]
+    public static partial IntPtr GListModelGetItem(IntPtr model, uint position);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_file_new_for_path", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial IntPtr GFileNewForPath(string path);
+
+    [LibraryImport("libgio-2.0.so.0", EntryPoint = "g_file_get_path")]
+    public static partial IntPtr GFileGetPath(IntPtr file);
+
+    [LibraryImport(GObject, EntryPoint = "g_object_unref")]
+    public static partial void GObjectUnref(IntPtr obj);
+
+    // GtkAlertDialog.
+    [LibraryImport(Gtk4, EntryPoint = "gtk_alert_dialog_new", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial IntPtr Gtk4AlertDialogNew(string format);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_alert_dialog_set_detail", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void Gtk4AlertDialogSetDetail(IntPtr dialog, string detail);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_alert_dialog_set_buttons")]
+    public static partial void Gtk4AlertDialogSetButtons(IntPtr dialog, IntPtr buttons);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_alert_dialog_choose")]
+    public static partial void Gtk4AlertDialogChoose(IntPtr dialog, IntPtr parent, IntPtr cancellable, IntPtr callback, IntPtr userData);
+
+    [LibraryImport(Gtk4, EntryPoint = "gtk_alert_dialog_choose_finish")]
+    public static partial int Gtk4AlertDialogChooseFinish(IntPtr dialog, IntPtr result, IntPtr error);
 }
 
 [SupportedOSPlatform("linux")]

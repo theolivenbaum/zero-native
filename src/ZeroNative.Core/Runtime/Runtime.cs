@@ -261,6 +261,37 @@ public sealed class Runtime
         Invalidated = true;
     }
 
+    /// <summary>
+    /// Programmatically moves and resizes <paramref name="windowId"/>. Updates the runtime's
+    /// view of the window immediately so callers don't have to wait for a platform event,
+    /// then delegates to the platform. Backends that don't support programmatic geometry
+    /// changes raise <see cref="UnsupportedServiceException"/>, which the runtime swallows
+    /// after logging.
+    /// </summary>
+    public void SetWindowFrame(ulong windowId, RectF frame)
+    {
+        var idx = FindWindowIndexById(windowId);
+        if (idx < 0) throw new WindowNotFoundException();
+
+        try { Options.Platform.Services.SetWindowFrame(windowId, frame); }
+        catch (UnsupportedServiceException)
+        {
+            Log("window.set_frame.unsupported", "platform refused programmatic resize", new() { ["window_id"] = windowId });
+            return;
+        }
+
+        _windows[idx] = _windows[idx] with { Frame = frame };
+        if (Options.WindowStateStore is { } store)
+        {
+            try { store.SaveWindow(_windows[idx].ToState()); }
+            catch (Exception ex)
+            {
+                Log("window.state.save_failed", ex.Message, new() { ["label"] = _windows[idx].Label });
+            }
+        }
+        Invalidated = true;
+    }
+
     public void EmitWindowEvent(ulong windowId, string name, string detailJson)
     {
         if (!Bridge.Bridge.IsValidJsonValue(detailJson))
@@ -298,7 +329,10 @@ public sealed class Runtime
         var count = appInfo.StartupWindowCount();
         for (var i = 0; i < count; i++)
         {
-            var window = appInfo.ResolvedStartupWindow(i);
+            var original = appInfo.ResolvedStartupWindow(i);
+            var window = ApplyPersistedState(original);
+            var frameRestored = window.DefaultFrame != original.DefaultFrame;
+
             if (FindWindowIndexById(window.Id) < 0)
             {
                 _windows.Add(new WindowInfo
@@ -318,6 +352,15 @@ public sealed class Runtime
             {
                 try { Options.Platform.Services.CreateWindow(window); }
                 catch (UnsupportedServiceException) { /* platform may auto-create */ }
+            }
+            else if (frameRestored)
+            {
+                // The primary window is constructed by the platform from AppInfo before
+                // the runtime ever runs, so it never sees the persisted frame unless the
+                // caller pre-applied WindowStateRestoration.Apply. Push the restored frame
+                // through SetWindowFrame so backends can resize the live HWND/NSWindow.
+                try { Options.Platform.Services.SetWindowFrame(window.Id, window.DefaultFrame); }
+                catch (UnsupportedServiceException) { /* not all backends support it yet */ }
             }
 
             try { Options.Platform.Services.LoadWindowWebView(window.Id, source); }

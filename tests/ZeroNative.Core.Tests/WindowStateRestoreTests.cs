@@ -111,6 +111,90 @@ public class WindowStateRestoreTests
     }
 
     [Fact]
+    public void Run_AppliesPersistedFrameToPrimaryWindowViaPlatform()
+    {
+        using var dir = new TempDir();
+        var store = new JsonWindowStateStore(dir.Path);
+        store.SaveWindow(new Platform.WindowState
+        {
+            Id = 1,
+            Label = "main",
+            Frame = new RectF(123, 456, 1280, 800),
+        });
+
+        var info = new AppInfo
+        {
+            MainWindow = new WindowOptions { Id = 1, Label = "main", DefaultFrame = new RectF(0, 0, 640, 480) },
+        };
+
+        var platform = new NullPlatform(new Surface(), WebEngine.System, info);
+        var runtime = new ZeroNative.Runtime.Runtime(new RuntimeOptions
+        {
+            Platform = platform,
+            WindowStateStore = store,
+        });
+
+        runtime.Run(new AppBuilder().WithSource(WebViewSource.Html("<p/>")).Build());
+
+        Assert.True(platform.WindowFrameOverrides.TryGetValue(1, out var frame));
+        Assert.Equal(123f, frame.X);
+        Assert.Equal(456f, frame.Y);
+        Assert.Equal(1280f, frame.Width);
+        Assert.Equal(800f, frame.Height);
+    }
+
+    [Fact]
+    public void Run_SkipsSetFrame_WhenNoPersistedState()
+    {
+        using var dir = new TempDir();
+        var store = new JsonWindowStateStore(dir.Path);
+
+        var info = new AppInfo
+        {
+            MainWindow = new WindowOptions { Id = 1, Label = "main", DefaultFrame = new RectF(0, 0, 640, 480) },
+        };
+
+        var platform = new NullPlatform(new Surface(), WebEngine.System, info);
+        var runtime = new ZeroNative.Runtime.Runtime(new RuntimeOptions
+        {
+            Platform = platform,
+            WindowStateStore = store,
+        });
+
+        runtime.Run(new AppBuilder().WithSource(WebViewSource.Html("<p/>")).Build());
+        Assert.Empty(platform.WindowFrameOverrides);
+    }
+
+    [Fact]
+    public void SetWindowFrame_UpdatesRuntimeStateAndPersists()
+    {
+        using var dir = new TempDir();
+        var store = new JsonWindowStateStore(dir.Path);
+
+        var info = new AppInfo
+        {
+            MainWindow = new WindowOptions { Id = 1, Label = "main", DefaultFrame = new RectF(0, 0, 640, 480) },
+        };
+
+        var platform = new NullPlatform(new Surface(), WebEngine.System, info);
+        var runtime = new ZeroNative.Runtime.Runtime(new RuntimeOptions
+        {
+            Platform = platform,
+            WindowStateStore = store,
+        });
+        runtime.Run(new AppBuilder().WithSource(WebViewSource.Html("<p/>")).Build());
+
+        runtime.SetWindowFrame(1, new RectF(100, 200, 1024, 768));
+
+        var window = runtime.Windows.Single(w => w.Id == 1);
+        Assert.Equal(new RectF(100, 200, 1024, 768), window.Frame);
+
+        var persisted = store.LoadWindow("main");
+        Assert.NotNull(persisted);
+        Assert.Equal(new RectF(100, 200, 1024, 768), persisted!.Frame);
+    }
+
+    [Fact]
     public void CreateWindow_RuntimeAppliesPersistedFrame()
     {
         using var dir = new TempDir();

@@ -255,6 +255,13 @@ internal sealed class WebView2Platform : IPlatform, IPlatformServices
         }
     }
 
+    void IPlatformServices.SetWindowFrame(ulong windowId, Primitives.RectF frame)
+    {
+        if (!_windowsById.TryGetValue(windowId, out var hwnd))
+            throw new WindowNotFoundException();
+        Win32.SetWindowFrame(hwnd, (int)frame.X, (int)frame.Y, (int)frame.Width, (int)frame.Height);
+    }
+
     OpenDialogResult IPlatformServices.ShowOpenDialog(OpenDialogOptions options) => Win32ShellDialogs.ShowOpen(_hwnd, options);
     string? IPlatformServices.ShowSaveDialog(SaveDialogOptions options) => Win32ShellDialogs.ShowSave(_hwnd, options);
     MessageDialogResult IPlatformServices.ShowMessageDialog(MessageDialogOptions options) => Win32Dialogs.ShowMessage(_hwnd, options);

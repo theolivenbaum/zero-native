@@ -12,6 +12,7 @@ public sealed class NullPlatform : IPlatform, IPlatformServices
     private readonly Dictionary<ulong, WebViewSource> _windowSources = new();
     private readonly Dictionary<ulong, string> _windowBridgeResponses = new();
     private readonly List<WindowEventRecord> _windowEvents = new();
+    private readonly Dictionary<ulong, Primitives.RectF> _windowFrameOverrides = new();
 
     public string Name => "null";
     public Surface Surface { get; }
@@ -126,6 +127,16 @@ public sealed class NullPlatform : IPlatform, IPlatformServices
         if (idx < 0) throw new WindowNotFoundException();
         _windows[idx] = _windows[idx] with { Open = false, Focused = false };
     }
+
+    void IPlatformServices.SetWindowFrame(ulong windowId, Primitives.RectF frame)
+    {
+        var idx = _windows.FindIndex(w => w.Id == windowId);
+        if (idx >= 0) _windows[idx] = _windows[idx] with { Frame = frame };
+        _windowFrameOverrides[windowId] = frame;
+    }
+
+    /// <summary>Latest frame requested per window via <c>SetWindowFrame</c>.</summary>
+    public IReadOnlyDictionary<ulong, Primitives.RectF> WindowFrameOverrides => _windowFrameOverrides;
 
     void IPlatformServices.ConfigureSecurityPolicy(SecurityPolicy policy)
     {

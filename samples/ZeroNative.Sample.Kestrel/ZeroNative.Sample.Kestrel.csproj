@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>ZeroNative.Sample.Kestrel</AssemblyName>
+    <RootNamespace>ZeroNative.Sample.Kestrel</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- Cross-platform publish targets. Pick one via `dotnet publish -r <rid>`:
+         win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64. -->
+    <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
+
+    <!-- macOS .app bundle (opt-in; the target is a no-op on non-macOS builds). -->
+    <ZeroNativeBundleApp>true</ZeroNativeBundleApp>
+    <ZeroNativeBundleId>dev.zero_native.sample.kestrel</ZeroNativeBundleId>
+    <ZeroNativeBundleName>ZeroNative Sample (Kestrel)</ZeroNativeBundleName>
+  </PropertyGroup>
+
+  <Import Project="..\..\src\ZeroNative\build\ZeroNative.AppBundle.targets" />
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\src\ZeroNative\ZeroNative.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

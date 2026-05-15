@@ -109,6 +109,12 @@ internal static partial class Win32
     private static extern int GetWindowRect(IntPtr hWnd, out RECT rect);
 
     [DllImport(User32)]
+    private static extern int SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOACTIVATE = 0x0010;
+
+    [DllImport(User32)]
     private static extern int SetForegroundWindow(IntPtr hWnd);
 
     [DllImport(User32, CharSet = CharSet.Unicode)]
@@ -288,6 +294,9 @@ internal static partial class Win32
     public static void CloseWindow(IntPtr hwnd) => DestroyWindow(hwnd);
 
     public static void FocusWindow(IntPtr hwnd) => SetForegroundWindow(hwnd);
+
+    public static void SetWindowFrame(IntPtr hwnd, int x, int y, int width, int height)
+        => SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
 
     public static void SetTitle(IntPtr hwnd, string title) => SetWindowTextW(hwnd, title);
 }

@@ -109,6 +109,9 @@ internal static partial class ObjC
     [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
     public static partial IntPtr MsgSend_CGRect_IntPtr(IntPtr target, IntPtr sel, CGRect frame, IntPtr arg);
 
+    [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]
+    public static partial IntPtr MsgSend_CGRect_Bool(IntPtr target, IntPtr sel, CGRect frame, [MarshalAs(UnmanagedType.U1)] bool display);
+
     // CGRect-returning message send. Both x86_64 and arm64 macOS return CGRect by value
     // through the standard struct-return convention so the regular objc_msgSend works.
     [LibraryImport(ObjCLib, EntryPoint = "objc_msgSend")]

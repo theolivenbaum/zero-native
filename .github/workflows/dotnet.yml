@@ -1,10 +1,9 @@
 name: .NET
 
+# Workflow disabled: triggers reduced to manual-only (workflow_dispatch).
+# To re-enable automatic CI, restore the pull_request / push triggers below.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read

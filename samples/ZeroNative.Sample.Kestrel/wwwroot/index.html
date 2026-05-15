@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ZeroNative + Kestrel sample</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>ZeroNative + Kestrel</h1>
+    <p>The desktop shell is ZeroNative. The data plane is an in-process Kestrel server. Every <code>fetch()</code> below reaches managed C# without crossing a network.</p>
+  </header>
+
+  <section>
+    <h2>HTTP endpoints</h2>
+    <div class="row">
+      <button id="echo">GET /api/echo</button>
+      <button id="post">POST /api/echo</button>
+      <button id="info">GET /api/info</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bridge commands</h2>
+    <p>For platform-only services (clipboard, dialogs, tray) the WebView still talks to the host through the JSON bridge.</p>
+    <div class="row">
+      <button id="clipboard">native.clipboard</button>
+      <button id="windows">window.list</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Output</h2>
+    <pre id="output">Click a button to see the response.</pre>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

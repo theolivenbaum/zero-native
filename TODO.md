@@ -333,14 +333,17 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       invocation (including how `--packDir` lines up with
       `ZeroNative.AppBundle.targets` on macOS). A trimmed-down CI matrix
       snippet is included at the end.
-- [ ] **Sample app: ZeroNative + Tesserae/H5 + Kestrel endpoints.** Build
-      a reference app that pairs the ZeroNative host with
-      [Tesserae](https://github.com/curiosity-ai/tesserae)
-      (H5-compiled, in-browser UI), and an in-process Kestrel server
-      exposing a handful of `Map*` endpoints that the WebView calls via
-      `fetch`. Demonstrates the "C# everywhere" path: H5 transpiles
-      the frontend to JS, Kestrel handles the data plane, ZeroNative
-      ships the desktop shell. Lands under `samples/ZeroNative.Sample.Tesserae`.
+- [x] **Sample app: ZeroNative + in-process Kestrel data plane.** Landed
+      under `samples/ZeroNative.Sample.Kestrel`. `Program.cs` boots a
+      `WebApplication.CreateSlimBuilder` listening on `127.0.0.1:0`,
+      narrows `SecurityPolicy.Navigation.AllowedOrigins` to the resolved
+      origin, and points `WebViewSource.Url(...)` at the Kestrel URL.
+      Bundles a static `wwwroot/` frontend that exercises `/api/echo`
+      / `/api/info` via `fetch()` plus a couple of bridge commands
+      (`native.clipboard`, `native.shell.open`). Tesserae/H5 slots in by
+      emitting its compiled output into `wwwroot/` — the sample README
+      walks through the integration path so we don't need to ship the
+      H5 toolchain in CI.
 - [x] **Hot reload of the web bundle.** `ZeroNative.Tooling.DevServer`
       (in `src/ZeroNative.Core/Tooling/DevServer.cs`) mirrors the Zig
       `tooling/dev.zig`: parse the dev URL, optionally spawn the dev

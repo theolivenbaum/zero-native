@@ -23,8 +23,9 @@ src/
     Linux/                  # WebKitGTK backend
   ZeroNative.Cef/           # CEF host (CefGlue.Common)
 samples/
-  ZeroNative.Sample/        # WebView sample
-  ZeroNative.Sample.Cef/    # CEF sample
+  ZeroNative.Sample/         # WebView sample
+  ZeroNative.Sample.Cef/     # CEF sample
+  ZeroNative.Sample.Kestrel/ # WebView + in-process Kestrel data plane
 tests/
   ZeroNative.Core.Tests/    # xUnit tests
 .reference/                 # original Zig sources

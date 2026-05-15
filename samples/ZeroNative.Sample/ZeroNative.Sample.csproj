@@ -7,7 +7,21 @@
     <RootNamespace>ZeroNative.Sample</RootNamespace>
     <IsPackable>false</IsPackable>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- Cross-platform publish targets. Pick one via `dotnet publish -r <rid>`:
+         win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64. -->
+    <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
+
+    <!-- macOS .app bundle (opt-in; the target is a no-op on non-macOS builds). -->
+    <ZeroNativeBundleApp>true</ZeroNativeBundleApp>
+    <ZeroNativeBundleId>dev.zero_native.sample</ZeroNativeBundleId>
+    <ZeroNativeBundleName>ZeroNative Sample</ZeroNativeBundleName>
   </PropertyGroup>
+
+  <!-- ProjectReference includes the .targets via the package contract too,
+       but we explicitly import them here so the sample can be built from
+       source without going through pack/restore. -->
+  <Import Project="..\..\src\ZeroNative\build\ZeroNative.AppBundle.targets" />
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ZeroNative\ZeroNative.csproj" />

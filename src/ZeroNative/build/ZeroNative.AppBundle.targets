@@ -1,0 +1,87 @@
+<Project>
+  <!--
+    macOS .app bundle assembly.
+
+    Opt-in via:
+      <PropertyGroup>
+        <ZeroNativeBundleApp>true</ZeroNativeBundleApp>
+        <ZeroNativeBundleId>com.example.myapp</ZeroNativeBundleId>
+        <ZeroNativeBundleName>My App</ZeroNativeBundleName>          <!- optional, defaults to AssemblyName ->
+        <ZeroNativeBundleIcon>path/to/Icon.icns</ZeroNativeBundleIcon> <!- optional ->
+        <ZeroNativeBundleVersion>1.0.0</ZeroNativeBundleVersion>      <!- optional, defaults to Version ->
+      </PropertyGroup>
+
+    Produces `$(OutputPath)$(ZeroNativeBundleName).app/Contents/{MacOS,Resources}` with a
+    generated Info.plist. Works for both debug builds and `dotnet publish -r osx-x64|osx-arm64`.
+  -->
+
+  <PropertyGroup Condition="'$(ZeroNativeBundleApp)' == 'true'">
+    <ZeroNativeBundleName Condition="'$(ZeroNativeBundleName)' == ''">$(AssemblyName)</ZeroNativeBundleName>
+    <ZeroNativeBundleVersion Condition="'$(ZeroNativeBundleVersion)' == ''">$(Version)</ZeroNativeBundleVersion>
+    <ZeroNativeBundleVersion Condition="'$(ZeroNativeBundleVersion)' == ''">1.0.0</ZeroNativeBundleVersion>
+    <ZeroNativeBundleMinOS Condition="'$(ZeroNativeBundleMinOS)' == ''">11.0</ZeroNativeBundleMinOS>
+  </PropertyGroup>
+
+  <Target Name="ZeroNativeAssembleAppBundle"
+          AfterTargets="Build;Publish"
+          Condition="'$(ZeroNativeBundleApp)' == 'true' and ('$(OS)' == 'Unix' or '$(OS)' == 'OSX')">
+
+    <PropertyGroup>
+      <!-- Anchor the bundle to the absolute output path so MSBuild can't accidentally
+           drop it in the working directory when the project is built from elsewhere. -->
+      <_ZNOutputDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/$(OutputPath)'))</_ZNOutputDir>
+      <_ZNBundlePath>$(_ZNOutputDir)/$(ZeroNativeBundleName).app</_ZNBundlePath>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_ZNBundlePath)/Contents/MacOS" />
+    <MakeDir Directories="$(_ZNBundlePath)/Contents/Resources" />
+
+    <PropertyGroup>
+      <_ZNInfoPlist>$(_ZNBundlePath)/Contents/Info.plist</_ZNInfoPlist>
+      <_ZNInfoPlistBody>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"&gt;
+&lt;plist version="1.0"&gt;
+&lt;dict&gt;
+  &lt;key&gt;CFBundleName&lt;/key&gt;
+  &lt;string&gt;$(ZeroNativeBundleName)&lt;/string&gt;
+  &lt;key&gt;CFBundleDisplayName&lt;/key&gt;
+  &lt;string&gt;$(ZeroNativeBundleName)&lt;/string&gt;
+  &lt;key&gt;CFBundleIdentifier&lt;/key&gt;
+  &lt;string&gt;$(ZeroNativeBundleId)&lt;/string&gt;
+  &lt;key&gt;CFBundleVersion&lt;/key&gt;
+  &lt;string&gt;$(ZeroNativeBundleVersion)&lt;/string&gt;
+  &lt;key&gt;CFBundleShortVersionString&lt;/key&gt;
+  &lt;string&gt;$(ZeroNativeBundleVersion)&lt;/string&gt;
+  &lt;key&gt;CFBundleExecutable&lt;/key&gt;
+  &lt;string&gt;$(AssemblyName)&lt;/string&gt;
+  &lt;key&gt;CFBundlePackageType&lt;/key&gt;
+  &lt;string&gt;APPL&lt;/string&gt;
+  &lt;key&gt;LSMinimumSystemVersion&lt;/key&gt;
+  &lt;string&gt;$(ZeroNativeBundleMinOS)&lt;/string&gt;
+  &lt;key&gt;NSHighResolutionCapable&lt;/key&gt;
+  &lt;true/&gt;
+  &lt;key&gt;NSSupportsAutomaticGraphicsSwitching&lt;/key&gt;
+  &lt;true/&gt;
+&lt;/dict&gt;
+&lt;/plist&gt;
+</_ZNInfoPlistBody>
+    </PropertyGroup>
+
+    <WriteLinesToFile File="$(_ZNInfoPlist)" Lines="$(_ZNInfoPlistBody)" Overwrite="true" />
+
+    <ItemGroup>
+      <_ZNBundleContents Include="$(_ZNOutputDir)/**/*" Exclude="$(_ZNBundlePath)/**/*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_ZNBundleContents)"
+          DestinationFiles="@(_ZNBundleContents->'$(_ZNBundlePath)/Contents/MacOS/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+
+    <Copy SourceFiles="$(ZeroNativeBundleIcon)"
+          DestinationFiles="$(_ZNBundlePath)/Contents/Resources/Icon.icns"
+          SkipUnchangedFiles="true"
+          Condition="'$(ZeroNativeBundleIcon)' != '' and Exists('$(ZeroNativeBundleIcon)')" />
+
+    <Message Text="ZeroNative: assembled $(_ZNBundlePath)" Importance="High" />
+  </Target>
+</Project>

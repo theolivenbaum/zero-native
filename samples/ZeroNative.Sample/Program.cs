@@ -21,19 +21,24 @@ const string Html = """
   <h1>ZeroNative .NET 10 sample</h1>
   <p>Running on the system WebView (WebView2 / WKWebView / WebKitGTK).</p>
   <button id="ping">Ping native</button>
+  <button id="windows">List windows</button>
+  <button id="clipboard">Read clipboard</button>
   <pre id="output"></pre>
   <script>
-    document.getElementById('ping').addEventListener('click', () => {
-      const id = String(Date.now());
-      const pending = {};
-      pending[id] = (response) => {
-        document.getElementById('output').textContent = JSON.stringify(response, null, 2);
-      };
-      window.__zero_native_bridge_response = (r) => {
-        if (r && pending[r.id]) { pending[r.id](r); delete pending[r.id]; }
-      };
-      window.chrome?.webview?.postMessage(JSON.stringify({ id, command: 'native.ping', payload: { from: 'browser' } }))
-        ?? window.webkit?.messageHandlers?.zero?.postMessage(JSON.stringify({ id, command: 'native.ping', payload: { from: 'browser' } }));
+    function show(label, value) {
+      document.getElementById('output').textContent = label + '\n' + JSON.stringify(value, null, 2);
+    }
+    document.getElementById('ping').addEventListener('click', async () => {
+      try { show('native.ping', await window.zero.invoke('native.ping', { from: 'browser' })); }
+      catch (e) { show('error', { code: e.code, message: e.message }); }
+    });
+    document.getElementById('windows').addEventListener('click', async () => {
+      try { show('windows', await window.zero.window.list()); }
+      catch (e) { show('error', { code: e.code, message: e.message }); }
+    });
+    document.getElementById('clipboard').addEventListener('click', async () => {
+      try { show('clipboard', await window.zero.invoke('native.clipboard', null)); }
+      catch (e) { show('error', { code: e.code, message: e.message }); }
     });
   </script>
 </body>
@@ -60,13 +65,22 @@ var registry = new BridgeRegistry()
     .Register(new BridgeHandler("native.ping", invocation =>
     {
         return $"{{\"pong\":true,\"echo\":{invocation.Request.Payload}}}";
+    }))
+    .Register(new BridgeHandler("native.clipboard", _ =>
+    {
+        try { return System.Text.Json.JsonSerializer.Serialize(platform.Services.ReadClipboard()); }
+        catch { return "null"; }
     }));
 
 var dispatcher = new BridgeDispatcher
 {
     Policy = new BridgePolicy(
         Enabled: true,
-        Commands: new[] { new BridgeCommandPolicy("native.ping", Origins: new[] { "zero://inline", "*" }) }),
+        Commands: new[]
+        {
+            new BridgeCommandPolicy("native.ping", Origins: new[] { "zero://inline", "*" }),
+            new BridgeCommandPolicy("native.clipboard", Origins: new[] { "zero://inline", "*" }),
+        }),
     Registry = registry,
 };
 

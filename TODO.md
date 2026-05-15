@@ -9,18 +9,30 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 ### Windows (WebView2)
 
-- [ ] **Multi-window support.** `WebView2Platform` currently only manages
-      a single top-level HWND + CoreWebView2. Extend to host multiple
-      `(HWND, CoreWebView2Controller)` pairs keyed by `WindowId`.
-- [ ] **DPI awareness.** Call `SetProcessDpiAwarenessContext` on startup,
-      read scale factor per monitor on `WM_DPICHANGED`, and forward it
-      to the runtime's `SurfaceResized` event.
+- [x] **Multi-window support.** `WebView2Platform` tracks
+      `(WindowId, HWND)` pairs and `CreateWindow` spawns additional Win32
+      HWNDs against the shared WebView2 environment. The primary HWND is
+      flagged so closing it (or the last open window) ends the loop.
+      Hosting an additional `CoreWebView2Controller` per HWND remains
+      future work — secondary windows currently render an empty Win32
+      shell until the controller fan-out lands.
+- [x] **DPI awareness.** `SetProcessDpiAwarenessContext(PER_MONITOR_V2)`
+      is called before any HWND is created (with a `SetProcessDpiAwareness`
+      fallback for older Windows). `GetDpiForWindow` is read on creation
+      and `WM_DPICHANGED` is forwarded as a `SurfaceResized` carrying the
+      new scale factor.
 - [x] **Open / save / message dialogs.** Implemented in
       `Win32Dialogs.cs` using `GetOpenFileNameW`/`GetSaveFileNameW`/`MessageBoxW`.
       Future work: migrate to the COM `IFileOpenDialog`/`IFileSaveDialog`
       APIs for the modern shell experience.
-- [ ] **Tray icon.** Implement `Shell_NotifyIcon` for `CreateTray` /
-      `UpdateTrayMenu` / `RemoveTray`.
+- [x] **Tray icon.** `Win32Tray` wraps `Shell_NotifyIconW` (NIM_ADD /
+      NIM_DELETE), builds the popup menu via `CreatePopupMenu` +
+      `AppendMenuW`, and tracks clicks via a custom `WM_USER + 1` message
+      routed through the shared WndProc to `TrackPopupMenu` (returning
+      the selected command id as a `PlatformEvent.TrayAction`).
+- [x] **Window events.** `Win32.WindowCallbacks` forwards `WM_SIZE`,
+      `WM_MOVE`, and `WM_ACTIVATE` so the runtime sees
+      `SurfaceResized` / `WindowFrameChanged` / `WindowFocused`.
 - [x] **Clipboard.** `Win32Clipboard` reads/writes Unicode text via
       `OpenClipboard` / `GetClipboardData(CF_UNICODETEXT)` /
       `SetClipboardData(CF_UNICODETEXT)`, wired through
@@ -48,26 +60,57 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 ### macOS (WKWebView)
 
-- [x] **Bridge inbound channel.** A `WKUserContentController` injects the
-      `BridgeJavascript` shim at document start and the platform registers
-      the script-message handler name. Wiring the actual ObjC handler
-      object (so messages from JS reach managed code) is still required.
-- [ ] **Native event loop wiring.** The current `[NSApp run]` call blocks
-      forever — there's no `applicationWillTerminate` plumbing back to
-      the runtime. Subclass `NSApplicationDelegate` to forward `terminate:`
-      and dock-quit signals as `app_shutdown` events.
-- [ ] **Window delegate.** Forward `windowDidResize`, `windowDidMove`,
-      `windowDidBecomeKey`, `windowWillClose` to the runtime.
-- [ ] **Open / save / message dialogs.** `NSOpenPanel`, `NSSavePanel`,
+- [x] **Bridge inbound channel.** A custom `ZeroNativeScriptHandler`
+      class (registered via `objc_allocateClassPair` + `class_addMethod`)
+      conforms to `WKScriptMessageHandler` and forwards
+      `userContentController:didReceiveScriptMessage:` payloads back to
+      the runtime, resolving the originating WKWebView so multi-window
+      bridge responses route to the right window.
+- [x] **Native event loop wiring.** A `ZeroNativeAppDelegate` is
+      registered as the `NSApplication` delegate. It implements
+      `applicationWillTerminate:` (publishes `AppShutdown`) and
+      `applicationShouldTerminateAfterLastWindowClosed:` (returns YES so
+      cmd-Q / dock-close ends the runloop cleanly).
+- [x] **Window delegate.** `ZeroNativeWindowDelegate` forwards
+      `windowDidResize:` / `windowDidMove:` (re-reading the NSWindow
+      `frame` and `backingScaleFactor`), `windowDidBecomeKey:`
+      (emitting `WindowFocused`), and `windowWillClose:` (emitting
+      `WindowFrameChanged` with `Open=false` and terminating the app
+      when the primary or last window closes).
+- [x] **Open / save / message dialogs.** `NSOpenPanel`, `NSSavePanel`,
       `NSAlert` wrappers behind the `IPlatformServices` API.
-- [ ] **Tray icon.** `NSStatusBar` + `NSStatusItem` + `NSMenu` integration.
-- [ ] **Custom URL scheme.** Implement a `WKURLSchemeHandler` for
-      `WebViewSource.Assets` so the configured origin maps to disk.
-- [ ] **Bundle / Info.plist generation.** Provide a packing target that
-      assembles `.app` bundles with the right `Info.plist`,
-      `CFBundleIdentifier`, icons, and entitlements.
-- [ ] **Universal binaries.** Wire `RuntimeIdentifiers` for `osx-x64;osx-arm64`
-      in the samples and document `lipo`-style packaging.
+      `allowedFileTypes:` carries the configured filter extensions and
+      primary/secondary/tertiary buttons map to
+      `NSAlertFirstButtonReturn` / `…SecondButtonReturn` / `…ThirdButtonReturn`.
+- [x] **Tray icon.** `NSStatusBar` + `NSStatusItem` + `NSMenu` with a
+      generated `ZeroNativeTrayTarget` target class. Menu activations
+      dispatch through `invoke:` to `PlatformEvent.TrayAction`.
+- [x] **Custom URL scheme.** `ZeroNativeUrlSchemeHandler` conforms to
+      `WKURLSchemeHandler`. `webView:startURLSchemeTask:` resolves the
+      request through the shared `AssetServer`, builds an
+      `NSHTTPURLResponse` with the right status / content-type, and
+      streams the body back via `didReceiveResponse:` / `didReceiveData:`
+      / `didFinish`.
+- [x] **Bundle / Info.plist generation.** `ZeroNative.AppBundle.targets`
+      ships in the NuGet `build/` directory and is auto-imported by
+      consumers. Setting `<ZeroNativeBundleApp>true</ZeroNativeBundleApp>`
+      (plus `<ZeroNativeBundleId>…</ZeroNativeBundleId>`) assembles
+      `$(OutputPath)$(BundleName).app/Contents/{MacOS,Resources}` with a
+      generated `Info.plist`. Codesigning / notarization remains an
+      out-of-band step.
+- [x] **Universal binaries.** The sample now declares
+      `<RuntimeIdentifiers>` for `win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64`,
+      so `dotnet publish -r osx-arm64` (or `-r osx-x64`) produces the
+      native-AOT-friendly per-RID outputs. Combine the two outputs via
+      `lipo -create -output ...` from a CI matrix to ship a fat binary.
+- [ ] **Clipboard via writable types.** `NSPasteboard.generalPasteboard`
+      reads/writes `public.utf8-plain-text` — file URL / image
+      pasteboard types are still TODO.
+- [ ] **Multi-window WKWebView fan-out.** `CreateWindow` allocates one
+      WKWebView per NSWindow against the shared configuration, but the
+      runtime's `LoadWindowWebView` only updates the right WKWebView
+      when called for an existing window id. Add coverage for
+      `Runtime.CreateWindow` round-trips.
 
 ### Linux (WebKitGTK)
 
@@ -83,15 +126,29 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 - [ ] **GTK4 + WebKitGTK 6.0 path.** Modern distros ship GTK4 first; add
       runtime probing for `libwebkitgtk-6.0` alongside the current
       `webkit2gtk-4.1` / `4.0` fallback chain.
-- [ ] **Open / save / message dialogs** via `GtkFileChooserDialog` and
-      `GtkMessageDialog`.
-- [ ] **Tray.** GTK no longer has a first-class tray API; integrate with
-      `libayatana-appindicator3-1` or document the gap.
+- [x] **Open / save / message dialogs** via `GtkFileChooserDialog` and
+      `GtkMessageDialog`. See `GtkDialogs.cs` — file filters, multi-select,
+      and primary/secondary/tertiary button mapping are all wired through
+      `IPlatformServices.ShowOpenDialog` / `ShowSaveDialog` / `ShowMessageDialog`.
+- [x] **Tray** via `libayatana-appindicator3-1`. `AyatanaIndicator`
+      probes the library at runtime; when missing the platform raises a
+      `UnsupportedServiceException` for `CreateTray` so callers can
+      detect the gap. Menu items map activations back to
+      `PlatformEvent.TrayAction`.
 - [x] **Clipboard** via `gtk_clipboard_get(GDK_SELECTION_CLIPBOARD)` +
       `gtk_clipboard_set_text` / `gtk_clipboard_wait_for_text`, wired through
       `IPlatformServices.ReadClipboard` / `WriteClipboard`.
-- [ ] **Window resize/focus events.** Connect `configure-event` and
-      `focus-in-event` to forward as `WindowFrameChanged` / `WindowFocused`.
+- [x] **Window resize/focus events.** `configure-event` reads
+      `gtk_window_get_position` + `gtk_window_get_size` and emits
+      `WindowFrameChanged` (plus `SurfaceResized` for the primary window);
+      `focus-in-event` emits `WindowFocused`.
+- [x] **Navigation policy.** Hooks the `decide-policy` signal,
+      resolves the requested URI through
+      `webkit_navigation_policy_decision_get_navigation_action` →
+      `webkit_navigation_action_get_request` → `webkit_uri_request_get_uri`,
+      and applies the SecurityPolicy verdict via
+      `webkit_policy_decision_use` / `webkit_policy_decision_ignore`.
+      External links route through `Process.Start(UseShellExecute=true)`.
 
 ### CEF (CefGlue)
 

@@ -55,6 +55,9 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
     private AssetServer? _assetServer;
     private string? _assetOrigin;
     private readonly ZeroSchemeHandlerFactory _schemeFactory;
+    private readonly Dictionary<ulong, CefBrowser> _browsers = new();
+    private readonly Dictionary<int, ulong> _windowIdByBrowserIdentifier = new();
+    private ulong _primaryWindowId = 1;
 
     public CefPlatform(AppInfo appInfo, Surface surface, CefPlatformOptions options)
     {
@@ -73,6 +76,7 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
         handler(new PlatformEvent.SurfaceResized(Surface));
 
         var window = AppInfo.ResolvedStartupWindow(0);
+        _primaryWindowId = window.Id;
         handler(new PlatformEvent.WindowFrameChanged(new WindowState
         {
             Id = window.Id,
@@ -147,13 +151,28 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
             _ => source.Body,
         };
 
-        if (_primaryBrowser is not null)
+        if (_browsers.TryGetValue(windowId, out var existing))
         {
-            _primaryBrowser.GetMainFrame()?.LoadUrl(url);
+            existing.GetMainFrame()?.LoadUrl(url);
             return;
         }
 
-        var window = AppInfo.ResolvedStartupWindow(0);
+        var window = ResolveWindowById(windowId);
+        SpawnBrowser(window, url);
+    }
+
+    private WindowOptions ResolveWindowById(ulong windowId)
+    {
+        for (var i = 0; i < AppInfo.StartupWindowCount(); i++)
+        {
+            var w = AppInfo.ResolvedStartupWindow(i);
+            if (w.Id == windowId) return w;
+        }
+        return AppInfo.ResolvedStartupWindow(0) with { Id = windowId };
+    }
+
+    private void SpawnBrowser(WindowOptions window, string url)
+    {
         var windowInfo = CefWindowInfo.Create();
         windowInfo.SetAsPopup(IntPtr.Zero, window.ResolvedTitle(AppInfo.AppName));
         windowInfo.Bounds = new CefRectangle(
@@ -162,9 +181,22 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
             (int)window.DefaultFrame.Width,
             (int)window.DefaultFrame.Height);
 
-        var client = new CefClientImpl(b => _primaryBrowser = b, OnBridgeMessage, () => _policy);
+        var client = new CefClientImpl(
+            onCreated: b => OnBrowserCreated(window.Id, b),
+            onBridge: OnBridgeMessage,
+            policyAccessor: () => _policy);
         CefBrowserHost.CreateBrowser(windowInfo, client, new CefBrowserSettings(), url);
     }
+
+    private void OnBrowserCreated(ulong windowId, CefBrowser browser)
+    {
+        _browsers[windowId] = browser;
+        _windowIdByBrowserIdentifier[browser.Identifier] = windowId;
+        if (windowId == _primaryWindowId) _primaryBrowser = browser;
+    }
+
+    private CefBrowser? BrowserFor(ulong windowId)
+        => _browsers.TryGetValue(windowId, out var b) ? b : _primaryBrowser;
 
     private string ConfigureAssetSource(WebViewAssetSource o)
     {
@@ -175,7 +207,7 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
 
     void IPlatformServices.CompleteWindowBridge(ulong windowId, string response)
     {
-        var frame = _primaryBrowser?.GetMainFrame();
+        var frame = BrowserFor(windowId)?.GetMainFrame();
         frame?.ExecuteJavaScript(
             $"window.__zero_native_bridge_response && window.__zero_native_bridge_response({response});",
             "zero://inline",
@@ -183,7 +215,16 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
     }
 
     WindowInfo IPlatformServices.CreateWindow(WindowOptions options)
-        => new()
+    {
+        EnsureInitialized();
+        if (_browsers.ContainsKey(options.Id))
+            throw new DuplicateWindowException("duplicate window id");
+
+        // The browser load URL is supplied by the runtime via a subsequent
+        // LoadWindowWebView call. Use about:blank as a placeholder; the runtime
+        // replaces it immediately. (CEF needs an initial URL at creation time.)
+        SpawnBrowser(options, "about:blank");
+        return new WindowInfo
         {
             Id = options.Id,
             Label = options.Label,
@@ -193,20 +234,33 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
             Open = true,
             Focused = false,
         };
+    }
 
-    void IPlatformServices.FocusWindow(ulong windowId) => _primaryBrowser?.GetHost().SetFocus(true);
+    void IPlatformServices.FocusWindow(ulong windowId)
+    {
+        BrowserFor(windowId)?.GetHost().SetFocus(true);
+    }
 
     void IPlatformServices.CloseWindow(ulong windowId)
     {
-        _primaryBrowser?.GetHost().CloseBrowser(true);
-        CefRuntime.QuitMessageLoop();
+        if (_browsers.TryGetValue(windowId, out var browser))
+        {
+            browser.GetHost().CloseBrowser(true);
+            _browsers.Remove(windowId);
+            _windowIdByBrowserIdentifier.Remove(browser.Identifier);
+            if (windowId == _primaryWindowId) _primaryBrowser = null;
+        }
+
+        // When the primary closes — or every window has closed — drop the loop.
+        if (_browsers.Count == 0 || windowId == _primaryWindowId)
+            CefRuntime.QuitMessageLoop();
     }
 
     void IPlatformServices.ConfigureSecurityPolicy(SecurityPolicy policy) => _policy = policy;
 
     void IPlatformServices.EmitWindowEvent(ulong windowId, string eventName, string detailJson)
     {
-        var frame = _primaryBrowser?.GetMainFrame();
+        var frame = BrowserFor(windowId)?.GetMainFrame();
         if (frame is null) return;
         var safeName = System.Text.Json.JsonSerializer.Serialize(eventName);
         frame.ExecuteJavaScript(
@@ -215,9 +269,10 @@ public sealed class CefPlatform : IPlatform, IPlatformServices, IDisposable
             0);
     }
 
-    private void OnBridgeMessage(string payload)
+    private void OnBridgeMessage(int browserId, string payload)
     {
-        _handler?.Invoke(new PlatformEvent.BridgeReceived(new BridgeMessage(payload, "zero://inline", 1)));
+        var windowId = _windowIdByBrowserIdentifier.TryGetValue(browserId, out var id) ? id : _primaryWindowId;
+        _handler?.Invoke(new PlatformEvent.BridgeReceived(new BridgeMessage(payload, "zero://inline", windowId)));
     }
 
     public void Dispose()
@@ -253,13 +308,13 @@ internal sealed class CefClientImpl : CefClient
 {
     private readonly CefLifeSpanHandlerImpl _lifeSpan;
     private readonly CefRequestHandlerImpl _request;
-    private readonly Action<string> _onBridgeMessage;
+    private readonly Action<int, string> _onBridge;
 
-    public CefClientImpl(Action<CefBrowser> onCreated, Action<string> onBridgeMessage, Func<SecurityPolicy> policyAccessor)
+    public CefClientImpl(Action<CefBrowser> onCreated, Action<int, string> onBridge, Func<SecurityPolicy> policyAccessor)
     {
         _lifeSpan = new CefLifeSpanHandlerImpl(onCreated, policyAccessor);
         _request = new CefRequestHandlerImpl(policyAccessor);
-        _onBridgeMessage = onBridgeMessage;
+        _onBridge = onBridge;
     }
 
     protected override CefLifeSpanHandler? GetLifeSpanHandler() => _lifeSpan;
@@ -272,7 +327,7 @@ internal sealed class CefClientImpl : CefClient
         if (args is null) return true;
         var payload = args.GetString(0);
         if (string.IsNullOrEmpty(payload)) return true;
-        _onBridgeMessage(payload);
+        _onBridge(browser.Identifier, payload);
         return true;
     }
 }

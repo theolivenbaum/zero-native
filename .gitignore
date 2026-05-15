@@ -14,6 +14,12 @@
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/
+
+# The Core library has a source folder called Debug/ for runtime-debug
+# helpers (PanicCapture etc); whitelist it back in so it isn't swallowed
+# by the build-output rule above.
+!src/ZeroNative.Core/Debug/
+!src/ZeroNative.Core/Debug/**
 x64/
 x86/
 [Aa][Rr][Mm]/

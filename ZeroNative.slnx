@@ -6,6 +6,7 @@
   <Folder Name="/src/">
     <Project Path="src/ZeroNative.Cef/ZeroNative.Cef.csproj" />
     <Project Path="src/ZeroNative.Core/ZeroNative.Core.csproj" />
+    <Project Path="src/ZeroNative.Templates/ZeroNative.Templates.csproj" />
     <Project Path="src/ZeroNative/ZeroNative.csproj" />
   </Folder>
   <Folder Name="/tests/">

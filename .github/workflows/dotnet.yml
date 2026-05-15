@@ -48,17 +48,40 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Resolve package version
+        id: resolve-version
+        shell: bash
+        run: |
+          # Pull the version from the pushed tag (vX.Y.Z[-pre][+build]); for branch
+          # builds emit a pre-release suffix so artifacts are uniquely identifiable.
+          # Override with ZERO_NATIVE_VERSION env when needed.
+          if [[ -n "${ZERO_NATIVE_VERSION:-}" ]]; then
+            version="${ZERO_NATIVE_VERSION}"
+          elif [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/v}"
+          elif [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            version="${GITHUB_REF#refs/tags/}"
+          else
+            short_sha="${GITHUB_SHA:0:7}"
+            version="0.1.0-dev.${GITHUB_RUN_NUMBER:-0}.${short_sha}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Resolved package version: ${version}"
+
       - name: Restore
         run: dotnet restore
 
       - name: Pack Core
-        run: dotnet pack -c Release --no-restore src/ZeroNative.Core/ZeroNative.Core.csproj -o ./artifacts
+        run: dotnet pack -c Release --no-restore -p:Version=${{ steps.resolve-version.outputs.version }} src/ZeroNative.Core/ZeroNative.Core.csproj -o ./artifacts
 
       - name: Pack ZeroNative
-        run: dotnet pack -c Release --no-restore src/ZeroNative/ZeroNative.csproj -o ./artifacts
+        run: dotnet pack -c Release --no-restore -p:Version=${{ steps.resolve-version.outputs.version }} src/ZeroNative/ZeroNative.csproj -o ./artifacts
 
       - name: Pack ZeroNative.Cef
-        run: dotnet pack -c Release --no-restore src/ZeroNative.Cef/ZeroNative.Cef.csproj -o ./artifacts
+        run: dotnet pack -c Release --no-restore -p:Version=${{ steps.resolve-version.outputs.version }} src/ZeroNative.Cef/ZeroNative.Cef.csproj -o ./artifacts
+
+      - name: Pack ZeroNative.Templates
+        run: dotnet pack -c Release --no-restore -p:Version=${{ steps.resolve-version.outputs.version }} src/ZeroNative.Templates/ZeroNative.Templates.csproj -o ./artifacts
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

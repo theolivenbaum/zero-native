@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using ZeroNative.Platform;
 using ZeroNative.Primitives;
 
@@ -54,7 +55,7 @@ public sealed class JsonWindowStateStore : IWindowStateStore
             try
             {
                 using var stream = File.OpenRead(_filePath);
-                var dto = JsonSerializer.Deserialize<WindowFileDto>(stream);
+                var dto = JsonSerializer.Deserialize(stream, WindowStateJsonContext.Default.WindowFileDto);
                 if (dto?.Windows is null) return Array.Empty<Platform.WindowState>();
                 return dto.Windows
                     .Where(w => !string.IsNullOrEmpty(w.Label))
@@ -87,7 +88,7 @@ public sealed class JsonWindowStateStore : IWindowStateStore
             JsonSerializer.Serialize(stream, new WindowFileDto
             {
                 Windows = existing.Select(WindowStateDto.From).ToList(),
-            }, new JsonSerializerOptions { WriteIndented = true });
+            }, WindowStateJsonContext.Default.WindowFileDto);
         }
     }
 
@@ -102,7 +103,7 @@ public sealed class JsonWindowStateStore : IWindowStateStore
             JsonSerializer.Serialize(stream, new WindowFileDto
             {
                 Windows = existing.Select(WindowStateDto.From).ToList(),
-            }, new JsonSerializerOptions { WriteIndented = true });
+            }, WindowStateJsonContext.Default.WindowFileDto);
         }
     }
 
@@ -110,12 +111,12 @@ public sealed class JsonWindowStateStore : IWindowStateStore
     public static JsonWindowStateStore CreateForApp(string appName, string fileName = "windows.json")
         => new(AppDirs.GetStateDirectory(appName), fileName);
 
-    private sealed class WindowFileDto
+    internal sealed class WindowFileDto
     {
         public List<WindowStateDto> Windows { get; set; } = new();
     }
 
-    private sealed class WindowStateDto
+    internal sealed class WindowStateDto
     {
         public ulong Id { get; set; } = 1;
         public string Label { get; set; } = "main";
@@ -160,6 +161,12 @@ public sealed class JsonWindowStateStore : IWindowStateStore
         };
     }
 }
+
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(JsonWindowStateStore.WindowFileDto))]
+[JsonSerializable(typeof(JsonWindowStateStore.WindowStateDto))]
+[JsonSerializable(typeof(List<JsonWindowStateStore.WindowStateDto>))]
+internal partial class WindowStateJsonContext : JsonSerializerContext { }
 
 /// <summary>
 /// Helpers that fold a window-state store back into an <see cref="AppInfo"/>, so the

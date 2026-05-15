@@ -1,0 +1,14 @@
+{
+  "id": "ZERO_NATIVE_BUNDLE_ID",
+  "name": "ZeroNativeApp",
+  "version": "0.1.0",
+  "permissions": ["window"],
+  "bridge": {
+    "commands": [
+      { "name": "native.ping", "origins": ["zero://inline", "*"] }
+    ]
+  },
+  "windows": [
+    { "label": "main", "title": "ZeroNativeApp", "width": 1024, "height": 720 }
+  ]
+}

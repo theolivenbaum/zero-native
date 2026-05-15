@@ -18,15 +18,6 @@ public class ManifestParseException : Exception
 /// </summary>
 public static class AppManifestJson
 {
-    private static readonly JsonSerializerOptions Options = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
-
     public static AppManifest Parse(string json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -35,7 +26,7 @@ public static class AppManifestJson
         ManifestDto dto;
         try
         {
-            dto = JsonSerializer.Deserialize<ManifestDto>(json, Options)
+            dto = JsonSerializer.Deserialize(json, ManifestJsonContext.Default.ManifestDto)
                   ?? throw new ManifestParseException("Manifest JSON deserialized to null");
         }
         catch (JsonException ex)
@@ -106,7 +97,7 @@ public static class AppManifestJson
         return new AppVersion(Parse(0), parts.Length > 1 ? Parse(1) : 0, parts.Length > 2 ? Parse(2) : 0, pre, build);
     }
 
-    private sealed class ManifestDto
+    internal sealed class ManifestDto
     {
         public string? Id { get; set; }
         public string? Name { get; set; }
@@ -158,7 +149,7 @@ public static class AppManifestJson
         }
     }
 
-    private sealed class IconDto
+    internal sealed class IconDto
     {
         public string? Asset { get; set; }
         public uint Size { get; set; }
@@ -173,14 +164,14 @@ public static class AppManifestJson
         }
     }
 
-    private sealed class BridgeDto
+    internal sealed class BridgeDto
     {
         public List<BridgeCommandDto>? Commands { get; set; }
         public BridgeConfig ToBridgeConfig()
             => new(Commands?.Select(c => c.ToCommand()).ToList());
     }
 
-    private sealed class BridgeCommandDto
+    internal sealed class BridgeCommandDto
     {
         public string? Name { get; set; }
         public List<string>? Permissions { get; set; }
@@ -197,7 +188,7 @@ public static class AppManifestJson
         }
     }
 
-    private sealed class FrontendDto
+    internal sealed class FrontendDto
     {
         public string? Dist { get; set; }
         public string? Entry { get; set; }
@@ -212,7 +203,7 @@ public static class AppManifestJson
                 Dev?.ToDevConfig());
     }
 
-    private sealed class FrontendDevDto
+    internal sealed class FrontendDevDto
     {
         public string? Url { get; set; }
         public List<string>? Command { get; set; }
@@ -227,14 +218,14 @@ public static class AppManifestJson
         }
     }
 
-    private sealed class SecurityDto
+    internal sealed class SecurityDto
     {
         public NavigationDto? Navigation { get; set; }
         public SecurityConfig ToSecurityConfig()
             => new(Navigation?.ToPolicy());
     }
 
-    private sealed class NavigationDto
+    internal sealed class NavigationDto
     {
         public List<string>? AllowedOrigins { get; set; }
         public ExternalLinksDto? ExternalLinks { get; set; }
@@ -243,7 +234,7 @@ public static class AppManifestJson
             => new(AllowedOrigins?.ToList(), ExternalLinks?.ToPolicy());
     }
 
-    private sealed class ExternalLinksDto
+    internal sealed class ExternalLinksDto
     {
         public string? Action { get; set; }
         public List<string>? AllowedUrls { get; set; }
@@ -252,7 +243,7 @@ public static class AppManifestJson
             => new(ParseExternalLinkAction(Action), AllowedUrls?.ToList());
     }
 
-    private sealed class PlatformDto
+    internal sealed class PlatformDto
     {
         public string? Platform { get; set; }
         public string? Id { get; set; }
@@ -273,7 +264,7 @@ public static class AppManifestJson
                 Profile);
     }
 
-    private sealed class WindowDto
+    internal sealed class WindowDto
     {
         public string? Label { get; set; }
         public string? Title { get; set; }
@@ -298,7 +289,7 @@ public static class AppManifestJson
                 ParseRestorePolicy(RestorePolicy));
     }
 
-    private sealed class CefDto
+    internal sealed class CefDto
     {
         public string? Dir { get; set; }
         public bool? AutoInstall { get; set; }
@@ -307,7 +298,7 @@ public static class AppManifestJson
             => new(Dir ?? "third_party/cef", AutoInstall ?? false);
     }
 
-    private sealed class PackageDto
+    internal sealed class PackageDto
     {
         public string? Kind { get; set; }
         public string? WebEngine { get; set; }
@@ -326,7 +317,7 @@ public static class AppManifestJson
                 Keywords?.ToList());
     }
 
-    private sealed class UpdateDto
+    internal sealed class UpdateDto
     {
         public string? FeedUrl { get; set; }
         public string? PublicKey { get; set; }
@@ -421,3 +412,12 @@ public static class AppManifestJson
             _ => ExternalLinkAction.Deny,
         };
 }
+
+[JsonSourceGenerationOptions(
+    PropertyNameCaseInsensitive = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    ReadCommentHandling = JsonCommentHandling.Skip,
+    AllowTrailingCommas = true,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(AppManifestJson.ManifestDto))]
+internal partial class ManifestJsonContext : JsonSerializerContext { }

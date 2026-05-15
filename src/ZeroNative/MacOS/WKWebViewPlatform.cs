@@ -359,6 +359,131 @@ internal sealed class WKWebViewPlatform : IPlatform, IPlatformServices
         ObjC.MsgSend(pasteboard, ObjC.Sel("setString:forType:"), ObjC.NSString(text ?? string.Empty), ObjC.NSString("public.utf8-plain-text"));
     }
 
+    IReadOnlyList<string> IPlatformServices.ReadClipboardFiles()
+    {
+        var pasteboardClass = ObjC.GetClass("NSPasteboard");
+        var pasteboard = ObjC.MsgSend(pasteboardClass, ObjC.Sel("generalPasteboard"));
+        if (pasteboard == IntPtr.Zero) return Array.Empty<string>();
+
+        // [pb propertyListForType: @"public.file-url"] returns either an NSArray
+        // (multiple URLs) or an NSString (single URL). We try both shapes.
+        var fileUrlType = ObjC.NSString("public.file-url");
+        var arrayProp = ObjC.MsgSend(pasteboard, ObjC.Sel("propertyListForType:"), fileUrlType);
+        if (arrayProp == IntPtr.Zero)
+        {
+            // Fall back to NSURL pasteboard items (10.6+ style).
+            var nsUrlClass = ObjC.GetClass("NSURL");
+            var classesArr = NSArrayFromClasses(nsUrlClass);
+            var dict = ObjC.MsgSend(ObjC.GetClass("NSDictionary"), ObjC.Sel("dictionary"));
+            var urls = ObjC.MsgSend(pasteboard, ObjC.Sel("readObjectsForClasses:options:"), classesArr, dict);
+            if (urls == IntPtr.Zero) return Array.Empty<string>();
+            var count = (long)ObjC.MsgSendNInt(urls, ObjC.Sel("count"));
+            var paths = new List<string>(checked((int)count));
+            for (var i = 0; i < count; i++)
+            {
+                var url = ObjC.MsgSend(urls, ObjC.Sel("objectAtIndex:"), (nuint)i);
+                var pathPtr = ObjC.MsgSend(url, ObjC.Sel("path"));
+                if (ObjC.ReadNSString(pathPtr) is { Length: > 0 } p) paths.Add(p);
+            }
+            return paths;
+        }
+        // arrayProp could be a single NSString or an NSArray of NSStrings/NSURLs.
+        if (ObjC.MsgSendBool(arrayProp, ObjC.Sel("isKindOfClass:"), ObjC.GetClass("NSArray")))
+        {
+            var count = (long)ObjC.MsgSendNInt(arrayProp, ObjC.Sel("count"));
+            var paths = new List<string>(checked((int)count));
+            for (var i = 0; i < count; i++)
+            {
+                var item = ObjC.MsgSend(arrayProp, ObjC.Sel("objectAtIndex:"), (nuint)i);
+                var s = ObjC.ReadNSString(item);
+                if (!string.IsNullOrEmpty(s)) paths.Add(NormalizeFileUrl(s));
+            }
+            return paths;
+        }
+        var single = ObjC.ReadNSString(arrayProp);
+        return string.IsNullOrEmpty(single) ? Array.Empty<string>() : new[] { NormalizeFileUrl(single) };
+    }
+
+    void IPlatformServices.WriteClipboardFiles(IReadOnlyList<string> paths)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        var pasteboardClass = ObjC.GetClass("NSPasteboard");
+        var pasteboard = ObjC.MsgSend(pasteboardClass, ObjC.Sel("generalPasteboard"));
+        if (pasteboard == IntPtr.Zero) return;
+
+        ObjC.MsgSend(pasteboard, ObjC.Sel("clearContents"));
+        if (paths.Count == 0) return;
+
+        var nsUrlClass = ObjC.GetClass("NSURL");
+        var mutArrClass = ObjC.GetClass("NSMutableArray");
+        var arr = ObjC.MsgSend(ObjC.MsgSend(mutArrClass, ObjC.Sel("alloc")), ObjC.Sel("init"));
+        foreach (var p in paths)
+        {
+            if (string.IsNullOrEmpty(p)) continue;
+            var nsPath = ObjC.NSString(p);
+            var url = ObjC.MsgSend(nsUrlClass, ObjC.Sel("fileURLWithPath:"), nsPath);
+            if (url != IntPtr.Zero)
+                ObjC.MsgSend(arr, ObjC.Sel("addObject:"), url);
+        }
+        ObjC.MsgSend(pasteboard, ObjC.Sel("writeObjects:"), arr);
+    }
+
+    byte[] IPlatformServices.ReadClipboardImage()
+    {
+        var pasteboardClass = ObjC.GetClass("NSPasteboard");
+        var pasteboard = ObjC.MsgSend(pasteboardClass, ObjC.Sel("generalPasteboard"));
+        if (pasteboard == IntPtr.Zero) return Array.Empty<byte>();
+
+        // Prefer PNG, then TIFF for downstream consumers that don't unpack TIFF.
+        foreach (var (uti, _) in new[] { ("public.png", "png"), ("public.tiff", "tiff") })
+        {
+            var data = ObjC.MsgSend(pasteboard, ObjC.Sel("dataForType:"), ObjC.NSString(uti));
+            if (data != IntPtr.Zero)
+            {
+                var bytes = ObjC.ReadNSData(data);
+                if (bytes.Length > 0) return bytes;
+            }
+        }
+        return Array.Empty<byte>();
+    }
+
+    void IPlatformServices.WriteClipboardImage(ReadOnlySpan<byte> bytes)
+    {
+        var pasteboardClass = ObjC.GetClass("NSPasteboard");
+        var pasteboard = ObjC.MsgSend(pasteboardClass, ObjC.Sel("generalPasteboard"));
+        if (pasteboard == IntPtr.Zero) return;
+        ObjC.MsgSend(pasteboard, ObjC.Sel("clearContents"));
+        if (bytes.IsEmpty) return;
+
+        var data = ObjC.NSData(bytes);
+
+        // The MIME of `bytes` is unknown to us; mark as PNG when the magic matches,
+        // otherwise fall back to TIFF (the AppKit default image pasteboard type).
+        var isPng = bytes.Length >= 8
+            && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47
+            && bytes[4] == 0x0D && bytes[5] == 0x0A && bytes[6] == 0x1A && bytes[7] == 0x0A;
+        var uti = isPng ? "public.png" : "public.tiff";
+        ObjC.MsgSend(pasteboard, ObjC.Sel("setData:forType:"), data, ObjC.NSString(uti));
+    }
+
+    private static IntPtr NSArrayFromClasses(params IntPtr[] classes)
+    {
+        var nsArrayClass = ObjC.GetClass("NSMutableArray");
+        var arr = ObjC.MsgSend(ObjC.MsgSend(nsArrayClass, ObjC.Sel("alloc")), ObjC.Sel("init"));
+        foreach (var c in classes) ObjC.MsgSend(arr, ObjC.Sel("addObject:"), c);
+        return arr;
+    }
+
+    private static string NormalizeFileUrl(string urlOrPath)
+    {
+        if (urlOrPath.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+        {
+            try { return Uri.UnescapeDataString(new Uri(urlOrPath).LocalPath); }
+            catch { return urlOrPath; }
+        }
+        return urlOrPath;
+    }
+
     void IPlatformServices.CreateTray(TrayOptions options)
     {
         _tray ??= new MacTray(id => _handler?.Invoke(new PlatformEvent.TrayAction(id)));

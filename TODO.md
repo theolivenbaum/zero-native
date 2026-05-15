@@ -103,9 +103,12 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       so `dotnet publish -r osx-arm64` (or `-r osx-x64`) produces the
       native-AOT-friendly per-RID outputs. Combine the two outputs via
       `lipo -create -output ...` from a CI matrix to ship a fat binary.
-- [ ] **Clipboard via writable types.** `NSPasteboard.generalPasteboard`
-      reads/writes `public.utf8-plain-text` — file URL / image
-      pasteboard types are still TODO.
+- [x] **Clipboard via writable types.** `NSPasteboard` now also reads/writes
+      `public.file-url` (single + array, plus the modern `readObjectsForClasses:`
+      path) and `public.png` / `public.tiff` image data. The Core
+      `IPlatformServices` interface gained matching `ReadClipboardFiles` /
+      `WriteClipboardFiles` / `ReadClipboardImage` / `WriteClipboardImage` hooks,
+      wired through on Windows (CF_HDROP + CF_DIB) and Linux (`gtk_clipboard_wait_for_uris`).
 - [ ] **Multi-window WKWebView fan-out.** `CreateWindow` allocates one
       WKWebView per NSWindow against the shared configuration, but the
       runtime's `LoadWindowWebView` only updates the right WKWebView
@@ -161,9 +164,14 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       function in the renderer process; `CefClientImpl.OnProcessMessageReceived`
       receives the `CefProcessMessage` in the browser process and forwards
       the payload to the runtime.
-- [ ] **Multi-window.** Track `(WindowId, CefBrowser)` pairs and use
-      `CefBrowserHost.CreateBrowser` per new window. Map
-      `WindowOptions.DefaultFrame` to `CefWindowInfo.Bounds`.
+- [x] **Multi-window.** `CefPlatform` tracks `(WindowId, CefBrowser)` pairs
+      and routes `LoadWindowWebView` / `CompleteWindowBridge` /
+      `EmitWindowEvent` / `FocusWindow` / `CloseWindow` through them.
+      `IPlatformServices.CreateWindow` spawns a fresh `CefBrowserHost.CreateBrowser`
+      against `CefWindowInfo.Bounds` matching `WindowOptions.DefaultFrame`;
+      bridge messages carry the originating browser id so multi-window
+      responses route correctly. Closing the primary (or last) browser
+      ends the CEF loop.
 - [x] **Resource interception** for `WebViewSource.Assets`. A
       `ZeroSchemeHandlerFactory` is registered as a `CustomScheme` at
       `CefRuntimeLoader.Initialize`; each request flows through
@@ -217,8 +225,6 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       pre-release/build, identity, bridge commands, security policy,
       frontend dev config, windows, CEF, package, updates). A TOML
       loader is still open.
-- [ ] **Strong-name / signing.** Decide on an `AssemblyOriginatorKeyFile`
-      and Authenticode/macOS notarization story for the published NuGets.
 
 ## Tests
 
@@ -244,8 +250,10 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 - [ ] Smoke-test each platform backend on its target OS (CI matrix:
       `windows-latest`, `macos-latest`, `ubuntu-latest`, plus arm64
       runners once available).
-- [ ] Snapshot tests for `Runtime` lifecycle traces (capture
-      `TraceRecord` sequence and diff against golden files).
+- [x] Snapshot tests for `Runtime` lifecycle traces (capture
+      `TraceRecord` sequence and diff against golden files). Locked
+      down the canonical order in
+      `tests/ZeroNative.Core.Tests/RuntimeLifecycleSnapshotTests.cs`.
 
 ## Tooling / packaging
 
@@ -256,13 +264,15 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       and tests on `windows-latest`, `macos-latest`, and `ubuntu-latest`,
       then packs `ZeroNative.Core`, `ZeroNative`, and `ZeroNative.Cef`
       and uploads the `.nupkg` artifacts.
-- [ ] **`dotnet pack --version` driven from CI tags.** Currently the
-      `Directory.Build.props` pins `Version=0.1.0`. Pull from
-      `GITVERSION_*` or the tag at pack time.
-- [ ] **`dotnet new` template.** The Zig original had a `zero-native init`
-      CLI. Provide a `dotnet new zero-native` template that scaffolds an
-      app project with a sensible `Program.cs`, an `app.json` (or `app.zon`
-      compatible reader), and a starter HTML page.
+- [x] **`dotnet pack --version` driven from CI tags.** The pack job in
+      `.github/workflows/dotnet.yml` resolves `Version` from the pushed
+      tag (`vX.Y.Z`), with a `0.1.0-dev.<run>.<sha>` fallback for branch
+      builds and a `ZERO_NATIVE_VERSION` env override.
+- [x] **`dotnet new` template.** `src/ZeroNative.Templates` ships a
+      `dotnet new zero-native-app` template. Installs via
+      `dotnet new install ZeroNative.Templates` and scaffolds a
+      `Program.cs`, `app.json`, and `wwwroot/index.html`. Pass `--UseCef`
+      to scaffold against `ZeroNative.Cef` instead.
 - [x] **Source link.** `Directory.Build.props` adds
       `Microsoft.SourceLink.GitHub` to every packable project and turns on
       `PublishRepositoryUrl` / `EmbedUntrackedSources` /
@@ -273,16 +283,41 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
 
 - [ ] Port the docs site under `.reference/docs/` (Next.js MDX) to point
       at the C# API surface, or replace with DocFX / .NET docs.
+- [ ] **Build the docs site with Neko.** Use the
+      [Neko](https://github.com/theolivenbaum/neko) static-site generator
+      (Markdown + components, Razor/H5 friendly) to publish the API and
+      guide pages. Author content under `docs/`, drive Neko from the
+      `pack` CI job, and publish to GitHub Pages.
 - [x] Per-package READMEs that get embedded in the NuGet.
-- [ ] Architecture diagram showing `Core` ↔ platform backends ↔ host apps.
+- [x] Architecture diagram showing `Core` ↔ platform backends ↔ host apps
+      (`README.md` "Architecture" section).
 
 ## Nice-to-haves
 
-- [ ] **Native AOT support.** Audit the P/Invoke surface for AOT
-      compatibility; add `IsAotCompatible=true` and a trim/AOT smoke test.
-- [ ] **MAUI / Avalonia integration samples.** Demonstrate hosting
-      `Runtime` inside a MAUI or Avalonia app for projects that want
-      richer native chrome around the WebView.
-- [ ] **Hot reload of the web bundle.** Mirror the Zig `tooling/dev.zig`
-      dev-server integration so saving a frontend file triggers a runtime
-      reload.
+- [x] **Native AOT support (Core).** `ZeroNative.Core` is marked
+      `IsAotCompatible=true` and `IsTrimmable=true`; the JSON code paths
+      use `JsonSerializerContext`-generated converters (manifest + window
+      state store), so the package builds cleanly under the AOT analyzer.
+      Platform host packages still need their own AOT audit when
+      consumers publish AOT-ready apps.
+- [ ] **Velopack installer documentation.** Document how to ship a
+      ZeroNative app as a self-updating installer with
+      [Velopack](https://velopack.io): per-OS packaging
+      (`vpk pack` for Windows MSIX/Setup.exe, macOS `.app`/`.pkg`, Linux
+      AppImage/`.deb`), update feed wiring (`UpdateManager`), and how the
+      generated `Velopack.UpdateExe` interacts with the `ZeroNative.AppBundle`
+      MSBuild target on macOS. Include a worked example under `docs/`.
+- [ ] **Sample app: ZeroNative + Tesserae/H5 + Kestrel endpoints.** Build
+      a reference app that pairs the ZeroNative host with
+      [Tesserae](https://github.com/curiosity-ai/tesserae)
+      (H5-compiled, in-browser UI), and an in-process Kestrel server
+      exposing a handful of `Map*` endpoints that the WebView calls via
+      `fetch`. Demonstrates the "C# everywhere" path: H5 transpiles
+      the frontend to JS, Kestrel handles the data plane, ZeroNative
+      ships the desktop shell. Lands under `samples/ZeroNative.Sample.Tesserae`.
+- [x] **Hot reload of the web bundle.** `ZeroNative.Tooling.DevServer`
+      (in `src/ZeroNative.Core/Tooling/DevServer.cs`) mirrors the Zig
+      `tooling/dev.zig`: parse the dev URL, optionally spawn the dev
+      command, poll the server until it answers a 2xx/3xx response, and
+      return a handle that owns the child process. Apps point their
+      `WebViewSource.Url(...)` at the resolved URL during development.

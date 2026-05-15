@@ -68,8 +68,17 @@ internal static partial class Gtk
     [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_wait_for_text")]
     public static partial IntPtr ClipboardWaitForText(IntPtr clipboard);
 
+    [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_wait_for_uris")]
+    public static partial IntPtr ClipboardWaitForUris(IntPtr clipboard);
+
+    [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_set_with_data")]
+    public static partial int ClipboardSetWithData(IntPtr clipboard, IntPtr targets, uint nTargets, IntPtr getFunc, IntPtr clearFunc, IntPtr userData);
+
     [LibraryImport(Gtk3, EntryPoint = "gtk_clipboard_store")]
     public static partial void ClipboardStore(IntPtr clipboard);
+
+    [LibraryImport(Glib, EntryPoint = "g_strfreev")]
+    public static partial void StringArrayFree(IntPtr stringArray);
 
     [LibraryImport(Glib, EntryPoint = "g_free")]
     public static partial void GFree(IntPtr ptr);

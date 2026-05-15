@@ -21,6 +21,23 @@ public static class AppDirs
     public static string GetCacheDirectory(string appName) =>
         Combine(CacheRoot(), appName);
 
+    public static string GetLogDirectory(string appName) =>
+        Combine(LogRoot(), appName);
+
+    private static string LogRoot()
+    {
+        // Honor the override the Zig original reads from ZERO_NATIVE_LOG_DIR.
+        var overrideDir = Environment.GetEnvironmentVariable("ZERO_NATIVE_LOG_DIR");
+        if (!string.IsNullOrEmpty(overrideDir)) return overrideDir;
+        if (OperatingSystem.IsWindows())
+            return Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Logs");
+        if (OperatingSystem.IsMacOS())
+            return Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Logs");
+        var xdg = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
+        if (!string.IsNullOrEmpty(xdg)) return Combine(xdg, "logs");
+        return Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "state", "logs");
+    }
+
     private static string StateRoot()
     {
         if (OperatingSystem.IsWindows())

@@ -75,6 +75,56 @@ dotnet pack -c Release src/ZeroNative/ZeroNative.csproj
 dotnet pack -c Release src/ZeroNative.Cef/ZeroNative.Cef.csproj
 ```
 
+## Architecture
+
+```
+                              host application
+                                     │
+                          ┌──────────┴──────────┐
+                          │                     │
+                          ▼                     ▼
+                ┌──────────────────┐   ┌──────────────────┐
+                │ AppBuilder + App │   │ BridgeRegistry + │
+                │  (Core)          │   │ BridgeDispatcher │
+                └────────┬─────────┘   └────────┬─────────┘
+                         │                      │
+                         └──────────┬───────────┘
+                                    ▼
+                          ┌──────────────────┐
+                          │     Runtime      │  ── trace ──▶  TraceSinks
+                          │     (Core)       │  ── state ──▶  IWindowStateStore
+                          │                  │  ── auto  ──▶  AutomationServer
+                          └────────┬─────────┘
+                                   │
+                                   ▼
+                          ┌──────────────────┐
+                          │ IPlatform        │
+                          │ IPlatformServices│ (clipboard / dialogs / tray)
+                          └────────┬─────────┘
+                                   │
+        ┌──────────────────────────┼──────────────────────────┐
+        ▼                          ▼                          ▼
+┌─────────────────┐       ┌─────────────────┐         ┌─────────────────┐
+│ WebView2 (Win)  │       │ WKWebView (mac) │         │ WebKitGTK (Lin) │
+└─────────────────┘       └─────────────────┘         └─────────────────┘
+                                  +
+                          ┌─────────────────┐
+                          │ CEF (CefGlue)   │     ── ZeroNative.Cef
+                          └─────────────────┘
+```
+
+- `ZeroNative.Core` owns the lifecycle, bridge, and security abstractions and never references any native API.
+- `ZeroNative` hosts the system WebView per OS and registers an `IPlatform`.
+- `ZeroNative.Cef` provides a CEF-backed `IPlatform`.
+- Both host packages register an asset scheme handler (`zero://app/`) so app bundles ship as plain folders.
+
+## Scaffolding a new app
+
+```bash
+dotnet new install ZeroNative.Templates
+dotnet new zero-native-app -n MyApp --BundleId dev.example.myapp
+```
+
 ## Status
 
-Initial port. Core abstractions (runtime, bridge, security, manifest) are complete and unit-tested. Platform backends are wired to the appropriate native APIs (WebView2 / WKWebView / WebKitGTK / CefGlue) and ready for further fleshing out (multi-window, dialogs, tray, IPC).
+Initial port. Core abstractions (runtime, bridge, security, manifest) are complete and unit-tested. Platform backends are wired to the appropriate native APIs (WebView2 / WKWebView / WebKitGTK / CefGlue). Multi-window, dialogs, tray, clipboard (text/file/image), navigation policy, asset serving, and the automation harness are all in place — see `TODO.md` for the remaining work list.

@@ -327,6 +327,14 @@ internal sealed class WKWebViewPlatform : IPlatform, IPlatformServices
         ObjC.MsgSend(entry.NsWindow, ObjC.Sel("close"));
     }
 
+    void IPlatformServices.SetWindowFrame(ulong windowId, RectF frame)
+    {
+        if (!_windows.TryGetValue(windowId, out var entry))
+            throw new WindowNotFoundException();
+        var rect = new ObjC.CGRect(frame.X, frame.Y, frame.Width, frame.Height);
+        ObjC.MsgSend_CGRect_Bool(entry.NsWindow, ObjC.Sel("setFrame:display:"), rect, true);
+    }
+
     void IPlatformServices.EmitWindowEvent(ulong windowId, string eventName, string detailJson)
     {
         if (!_windows.TryGetValue(windowId, out var entry)) return;

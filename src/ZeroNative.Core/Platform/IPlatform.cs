@@ -79,6 +79,13 @@ public interface IPlatformServices
     void FocusWindow(ulong windowId) => throw new UnsupportedServiceException();
     void CloseWindow(ulong windowId) => throw new UnsupportedServiceException();
 
+    /// <summary>
+    /// Moves and resizes an existing window. Platforms that don't support
+    /// programmatic geometry changes should throw <see cref="UnsupportedServiceException"/>;
+    /// the runtime swallows that to keep callers source-compatible.
+    /// </summary>
+    void SetWindowFrame(ulong windowId, Primitives.RectF frame) => throw new UnsupportedServiceException();
+
     OpenDialogResult ShowOpenDialog(OpenDialogOptions options) => throw new UnsupportedServiceException();
     string? ShowSaveDialog(SaveDialogOptions options) => throw new UnsupportedServiceException();
     MessageDialogResult ShowMessageDialog(MessageDialogOptions options) => throw new UnsupportedServiceException();

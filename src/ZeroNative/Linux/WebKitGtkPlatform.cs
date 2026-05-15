@@ -411,6 +411,16 @@ internal sealed class WebKitGtkPlatform : IPlatform, IPlatformServices
         Gtk.MainQuit();
     }
 
+    void IPlatformServices.SetWindowFrame(ulong windowId, Primitives.RectF frame)
+    {
+        var hwnd = _windows.TryGetValue(windowId, out var w) ? w
+                 : windowId == _primaryWindowId ? _window
+                 : IntPtr.Zero;
+        if (hwnd == IntPtr.Zero) throw new WindowNotFoundException();
+        Gtk.WindowResize(hwnd, (int)frame.Width, (int)frame.Height);
+        Gtk.WindowMove(hwnd, (int)frame.X, (int)frame.Y);
+    }
+
     void IPlatformServices.EmitWindowEvent(ulong windowId, string eventName, string detailJson)
     {
         if (_webView == IntPtr.Zero) return;

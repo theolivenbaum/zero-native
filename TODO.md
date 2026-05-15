@@ -57,9 +57,16 @@ implementation. Items are roughly grouped by subsystem and ordered by impact.
       `WindowStateRestoration.Apply(appInfo, store)` to fold persisted
       window geometry into `AppInfo` before constructing the platform,
       and the runtime additionally honors the store for windows created
-      at runtime via `Runtime.CreateWindow`. Per-platform startup wiring
-      (resizing the actual HWND/NSWindow without going through AppInfo)
-      remains TODO.
+      at runtime via `Runtime.CreateWindow`. The primary HWND/NSWindow/
+      GtkWindow is also resized in-place via the new
+      `IPlatformServices.SetWindowFrame` path: when the store carries a
+      saved frame for the main window, the runtime pushes it to the
+      live native window during startup, so callers no longer need to
+      pre-apply `WindowStateRestoration.Apply` before constructing the
+      platform. Wired through `WebView2Platform` (`SetWindowPos`),
+      `WKWebViewPlatform` (`setFrame:display:`), and `WebKitGtkPlatform`
+      (`gtk_window_resize` + `gtk_window_move`). CEF still rejects
+      programmatic geometry with `UnsupportedServiceException`.
 
 ### macOS (WKWebView)
 
